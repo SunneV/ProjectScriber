@@ -1,0 +1,5 @@
+<svg width="250" height="40" xmlns="http://www.w3.org/2000/svg">
+  <text x="10" y="30" font-family="Arial, sans-serif" font-size="30" font-weight="bold">
+    <tspan fill="dimgray">Project</tspan><tspan fill="dodgerblue">Scriber</tspan>
+  </text>
+</svg>
