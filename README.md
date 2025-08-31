@@ -1,5 +1,7 @@
 # Introduction
 
+[![latest version](https://img.shields.io/github/v/release/SunneV/ProjectScriber?style=flat&label=latest%20version)](https://github.com/SunneV/ProjectScriber/releases)
+[![PyPI version](https://img.shields.io/pypi/v/project-scriber?style=flat)](https://pypi.org/project/project-scriber/)
 <p align="center">
   <img src="https://raw.githubusercontent.com/SunneV/ProjectScriber/main/assets/scriber_logo.svg" alt="ProjectScriber Logo" width="420">
 </p>
@@ -8,46 +10,66 @@
 </p>
 
 A command-line tool to intelligently map and compile your entire project's source code into a single, context-optimized
-text file for Large Language Models (LLMs).
+text file for Large Language Models (LLMs). ProjectScriber scans your project directory, respects `.gitignore` rules,
+applies custom filters, and bundles all relevant code into a clean, readable format. It's the perfect way to provide a
+complete codebase to an AI for analysis, documentation, or refactoring.
 
-ProjectScriber scans your project directory, respects `.gitignore` rules, applies custom filters, and bundles all
-relevant code into a clean, readable format. It's the perfect way to provide a complete codebase to an AI for analysis,
-documentation, or refactoring.
-
------
+***
 
 ## Key Features
 
-- **🌳 Smart Project Mapping:** Generates a clear and intuitive tree view of your project's structure.
-- **⚙️ Intelligent Filtering:** Automatically respects `.gitignore` rules and supports custom `include` and `exclude`
+* **🌳 Smart Project Mapping:** Generates a clear and intuitive tree view of your project's structure.
+* **⚙️ Intelligent Filtering:** Automatically respects `.gitignore` rules and supports custom `include` and `exclude`
   patterns via a `.scriber.json` file for fine-grained control.
-- **📊 In-depth Code Analysis:** Provides a summary with total file size, estimated token count (using `cl100k_base`),
+* **📊 In-depth Code Analysis:** Provides a summary with total file size, estimated token count (using `cl100k_base`),
   and a language breakdown for a quick overview of your codebase.
-- **✨ Interactive Setup:** A simple `scriber init` command walks you through creating a configuration file tailored to
+* **✨ Interactive Setup:** A simple `scriber init` command walks you through creating a configuration file tailored to
   your project.
-- **📋 Clipboard Integration:** Use the `--copy` flag to automatically copy the entire consolidated output to your
+* **📋 Clipboard Integration:** Use the `--copy` flag to automatically copy the entire consolidated output to your
   clipboard, ready to be pasted into any application.
-- **🔧 Flexible Configuration:** Manage your settings globally in a `pyproject.toml` file or per-project with a
+* **🔧 Flexible Configuration:** Manage your settings globally in a `pyproject.toml` file or per-project with a
   `.scriber.json` file.
 
------
+***
 
 ## Getting Started
 
+### Install using pip
+
+Install the package directly from the official Python Package Index (PyPI).
+
+```shell
+pip install project-scriber
+````
+
+-----
+
+## For Developers
+
 ### Prerequisites
 
-- Python 3.10 or higher.
+* Python 3.10 or higher.
 
 ### Installation
 
-Install the package from the source using pip. For development, include the optional dependencies.
+Clone the repository and install it in an editable (development) mode with all optional dependencies.
 
 ```shell
-# Navigate to the project root directory
-pip install .[dev]
+# Clone the repository
+git clone [https://github.com/SunneV/ProjectScriber.git](https://github.com/SunneV/ProjectScriber.git)
+cd ProjectScriber
+
+# Install for development
+pip install -e .[dev]
 ```
 
-This will install `ProjectScriber` and make the `scriber` command available in your terminal.
+### Run Tests
+
+Run the test suite using `pytest`.
+
+```shell
+pytest
+```
 
 -----
 
@@ -95,17 +117,26 @@ You can customize ProjectScriber's behavior with the following commands and opti
 |:----------------------|:-----:|:-------------------------------------------------------------------------------|
 | `scriber [path]`      |       | Targets a specific directory. Defaults to the current working directory.       |
 | `init`                |       | Starts the interactive process to create a `.scriber.json` configuration file. |
+| `--version`           | `-v`  | Displays the current version of ProjectScriber.                                |                                                                                |
 | `--output [filename]` | `-o`  | Specifies a custom name for the output file.                                   |
 | `--copy`              | `-c`  | Copies the final output directly to the clipboard.                             |
 | `--tree-only`         |       | Generates only the folder structure map, excluding all file contents.          |
-| `--config [path]`     |       | Specifies the path to a custom configuration file.                             |
+| `--config [path]`     |       | Specifies a path to a custom `.json` or `pyproject.toml` configuration file.   |
 
 -----
 
 ## Configuration
 
-You can control ProjectScriber's behavior by placing a `.scriber.json` file in your project's root, which can be easily
-created with the `scriber init` command.
+ProjectScriber uses the following order of precedence for loading configurations:
+
+1. **`--config [path]` flag**: Highest priority. If you provide a path to a `.json` or `pyproject.toml` file, its
+   settings will be used. This is ideal for monorepos where a central configuration is needed.
+2. **`.scriber.json`**: If no `--config` flag is used, Scriber looks for a `.scriber.json` file in the project's root
+   directory. This file's settings will override any found in `pyproject.toml`.
+3. **`pyproject.toml`**: If neither of the above is found, it looks for a `[tool.scriber]` section in a `pyproject.toml`
+   file in the project's root.
+4. **Default Config**: If no configuration file is found, `scriber` will prompt you to create a default `.scriber.json`
+   on its first run in a directory.
 
 **Example `.scriber.json`:**
 
@@ -140,9 +171,9 @@ include = [
 ]
 ```
 
-- **`use_gitignore`**: If `true`, all patterns in your `.gitignore` file will be used for exclusion.
-- **`exclude`**: A list of file or folder name patterns to explicitly ignore.
-- **`include`**: If provided, *only* files matching these patterns will be included in the output, overriding other
+* **`use_gitignore`**: If `true`, all patterns in your `.gitignore` file will be used for exclusion.
+* **`exclude`**: A list of file or folder name patterns to explicitly ignore.
+* **`include`**: If provided, *only* files matching these patterns will be included in the output, overriding other
   rules.
 
 Settings can also be placed in your `pyproject.toml` file under the `[tool.scriber]` section. If a `.scriber.json` file
