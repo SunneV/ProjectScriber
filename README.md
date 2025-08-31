@@ -9,7 +9,7 @@
   <img src="https://raw.githubusercontent.com/SunneV/ProjectScriber/main/assets/scriber_name.svg" alt="ProjectScriber Name" width="300">
 </p>
 
-A command-line tool to intelligently map and compile your entire project's source code into a single, context-optimized
+A simple command-line tool to intelligently map and compile your entire project's source code into a single, context-optimized
 text file for Large Language Models (LLMs). ProjectScriber scans your project directory, respects `.gitignore` rules,
 applies custom filters, and bundles all relevant code into a clean, readable format. It's the perfect way to provide a
 complete codebase to an AI for analysis, documentation, or refactoring.
@@ -117,6 +117,7 @@ You can customize ProjectScriber's behavior with the following commands and opti
 |:----------------------|:-----:|:-------------------------------------------------------------------------------|
 | `scriber [path]`      |       | Targets a specific directory. Defaults to the current working directory.       |
 | `init`                |       | Starts the interactive process to create a `.scriber.json` configuration file. |
+| `--help`              | `-h`  | Displays this help message.                                                    |       |                                                                                |
 | `--version`           | `-v`  | Displays the current version of ProjectScriber.                                |                                                                                |
 | `--output [filename]` | `-o`  | Specifies a custom name for the output file.                                   |
 | `--copy`              | `-c`  | Copies the final output directly to the clipboard.                             |
@@ -178,3 +179,9 @@ include = [
 
 Settings can also be placed in your `pyproject.toml` file under the `[tool.scriber]` section. If a `.scriber.json` file
 is present, it will take precedence over the `pyproject.toml` configuration.
+
+-----
+
+## Contributing
+
+Contributions are welcome! If you have a suggestion or find a bug, please open an issue to discuss it.
