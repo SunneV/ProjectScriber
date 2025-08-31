@@ -19,8 +19,8 @@ DEFAULT_CONFIG = {
     "use_gitignore": True,
     "exclude": [
         # Common
-        "LICENSE"
-        
+        "LICENSE",
+
         # Version Control
         ".git",
 
@@ -117,34 +117,42 @@ class Scriber:
             self._console.print(f"❌ [bold red]Could not create default config file:[/] {e}")
 
     def _load_config(self) -> None:
+        """Loads configuration with a clear precedence: --config, .scriber.json, pyproject.toml."""
         config = DEFAULT_CONFIG.copy()
-        toml_config_found = False
-        toml_path = self.root_path / "pyproject.toml"
+        config_path_to_use = None
+        config_loaded = False
 
-        if toml_path.is_file():
-            try:
-                with toml_path.open("rb") as f:
-                    toml_data = tomllib.load(f)
-                    if "tool" in toml_data and "scriber" in toml_data["tool"]:
-                        config.update(toml_data["tool"]["scriber"])
-                        toml_config_found = True
-            except tomllib.TOMLDecodeError:
-                self._console.print(f"Warning: Invalid pyproject.toml format in {toml_path}")
+        if self._user_config_path:
+            if self._user_config_path.is_file():
+                config_path_to_use = self._user_config_path
+            else:
+                self._console.print(f"Warning: Config file specified by --config not found at {self._user_config_path}")
+        else:
+            json_path = self.root_path / self._CONFIG_FILE_NAME
+            toml_path = self.root_path / "pyproject.toml"
+            if json_path.is_file():
+                config_path_to_use = json_path
+            elif toml_path.is_file():
+                config_path_to_use = toml_path
 
-        config_path_to_use = self._user_config_path or (self.root_path / self._CONFIG_FILE_NAME)
-
-        if not toml_config_found and not config_path_to_use.is_file() and not self._user_config_path:
-            self._create_default_config_file()
-
-        if config_path_to_use.is_file():
+        if config_path_to_use:
             self.config_path_used = config_path_to_use
             try:
-                with config_path_to_use.open("r", encoding="utf-8") as f:
-                    config.update(json.load(f))
-            except json.JSONDecodeError as e:
-                self._console.print(f"Error: Invalid JSON in {config_path_to_use}. Details: {e}")
-            except IOError:
-                pass
+                if config_path_to_use.suffix == ".toml":
+                    with config_path_to_use.open("rb") as f:
+                        toml_data = tomllib.load(f)
+                        if "tool" in toml_data and "scriber" in toml_data["tool"]:
+                            config.update(toml_data["tool"]["scriber"])
+                            config_loaded = True
+                else:
+                    with config_path_to_use.open("r", encoding="utf-8") as f:
+                        config.update(json.load(f))
+                        config_loaded = True
+            except (json.JSONDecodeError, tomllib.TOMLDecodeError, IOError) as e:
+                self._console.print(f"Error parsing config file {self.config_path_used}: {e}")
+
+        if not config_loaded and not self._user_config_path:
+            self._create_default_config_file()
 
         self.config = config
         self.include_patterns: List[str] = self.config.get("include", [])

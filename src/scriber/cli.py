@@ -66,7 +66,7 @@ def save_to_toml(console: Console, config: dict[str, Any]):
         console.print(f"\n❌ [bold red]Error updating `pyproject.toml`:[/] {e}")
 
 
-def handle_init(console: Console):
+def handle_init(args: argparse.Namespace, console: Console):
     """Handles the interactive initialization of a config file."""
     console.print(Panel("[bold cyan]Scriber Configuration Setup[/]", expand=False))
     console.print("This utility will help you create a configuration file.\n")
@@ -106,13 +106,8 @@ def handle_init(console: Console):
         save_to_toml(console, config)
 
 
-def run_scriber(args: argparse.Namespace, console: Console):
+def run_scriber(args: argparse.Namespace, console: Console, version: str):
     """Handles the main logic of mapping and generating the project output."""
-    try:
-        version = metadata.version("project-scriber")
-    except metadata.PackageNotFoundError:
-        version = "1.0.0 (local)"
-
     title_text = Text(f"Scriber v{version}", justify="center", style="bold magenta")
     subtitle_text = Text("An intelligent tool to map, analyze, and compile project source code for LLM context.", justify="center", style="cyan")
     console.print(Panel(Text.assemble(title_text, "\n", subtitle_text), expand=False, border_style="blue"))
@@ -169,7 +164,7 @@ def run_scriber(args: argparse.Namespace, console: Console):
     else:
         console.print(Panel("[yellow]No files were mapped based on the current configuration.[/]", expand=False))
 
-    output_location = args.root_path.resolve() / output_filename
+    output_location = Path(args.root_path).resolve() / output_filename
 
     console.print("\n✅ [green]Success! Output saved to:[/green]")
     try:
@@ -191,44 +186,55 @@ def run_scriber(args: argparse.Namespace, console: Console):
 def main() -> None:
     """Parses arguments and runs the appropriate command."""
     console = Console()
+
+    try:
+        version = metadata.version("project-scriber")
+    except metadata.PackageNotFoundError:
+        version = "1.0.0 (local)"
+
     parser = argparse.ArgumentParser(
         description="Scriber: An intelligent tool to map, analyze, and compile project source code for LLM context."
     )
+    parser.add_argument(
+        "-v", "--version",
+        action="version",
+        version=f"%(prog)s v{version}",
+        help="Show the version number and exit."
+    )
+
     subparsers = parser.add_subparsers(dest="command", title="Commands")
 
-    init_parser = subparsers.add_parser("init", help="Create a new .scriber.json configuration file interactively.")
-    init_parser.set_defaults(func=lambda args: handle_init(console))
+    # `init` command subparser
+    init_parser = subparsers.add_parser("init", help="Create a new configuration file interactively.")
+    init_parser.set_defaults(func=lambda args: handle_init(args, console))
 
-    run_parser = argparse.ArgumentParser(add_help=False)
+    # `run` command subparser
+    run_parser = subparsers.add_parser("run", help="Map the project structure (default command).")
 
     exec_mode = os.environ.get('SCRIBER_EXEC_MODE')
+    default_path = Path.cwd().parent if exec_mode == 'RUN_PY' else Path.cwd()
     if exec_mode == 'RUN_PY':
-        default_path = Path.cwd().parent
         del os.environ['SCRIBER_EXEC_MODE']
-    else:
-        default_path = Path.cwd()
 
     run_parser.add_argument(
         "root_path",
         nargs="?",
         default=os.environ.get("PROJECT_SCRIBER_ROOT", default_path),
         type=Path,
-        help="The root directory of the project to map.",
+        help="The root directory of the project to map. Defaults to the current directory.",
     )
     run_parser.add_argument(
-        "-o",
-        "--output",
+        "-o", "--output",
         help="The name of the output file. Overrides config file settings.",
     )
     run_parser.add_argument(
         "--config",
         default=os.environ.get("PROJECT_SCRIBER_CONFIG"),
         type=Path,
-        help="Path to a custom configuration file. Overrides default .scriber.json"
+        help="Path to a custom configuration file."
     )
     run_parser.add_argument(
-        "--copy",
-        "-c",
+        "-c", "--copy",
         action="store_true",
         help="Copy the final output to the clipboard.",
     )
@@ -237,15 +243,23 @@ def main() -> None:
         action="store_true",
         help="Generate only the file tree structure without file content.",
     )
-    run_parser.set_defaults(func=lambda args: run_scriber(args, console))
+    run_parser.set_defaults(func=lambda args: run_scriber(args, console, version))
 
-    # Make the 'run' command the default action if no subcommand is provided.
-    if len(sys.argv) == 1 or sys.argv[1] not in subparsers.choices:
-        args = run_parser.parse_args()
+    # Pre-process args to insert 'run' as the default command
+    args_to_parse = sys.argv[1:]
+    global_flags = ['-h', '--help', '-v', '--version']
+
+    if not args_to_parse or args_to_parse[0] not in list(subparsers.choices) + global_flags:
+        args_to_parse.insert(0, 'run')
+
+    args = parser.parse_args(args_to_parse)
+
+    if hasattr(args, 'func'):
+        args.func(args)
     else:
-        args = parser.parse_args()
-
-    args.func(args)
+        # This branch is hit for global flags like -h, --help, -v, --version
+        # which are handled by argparse and exit, or if no func is set.
+        parser.print_help()
 
 
 if __name__ == "__main__":

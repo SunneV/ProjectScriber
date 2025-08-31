@@ -86,6 +86,32 @@ class TestCore:
         paths = {p.name for p in scriber.mapped_files}
         assert paths == {"main.py", "script.js"}
 
+    def test_core_loads_external_toml_config(self, tmp_path: Path):
+        """Tests core logic loads config from an external pyproject.toml via config_path."""
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        toml_path = config_dir / "pyproject.toml"
+        toml_path.write_text("[tool.scriber]\ninclude = ['*.py']")
+
+        project_dir = tmp_path / "project"
+        project_dir.mkdir()
+        (project_dir / "app.py").touch()
+        (project_dir / "data.json").touch()
+
+        scriber = Scriber(root_path=project_dir, config_path=toml_path)
+        scriber.map_project()
+
+        paths = {p.name for p in scriber.mapped_files}
+        assert paths == {"app.py"}
+        assert scriber.config_path_used == toml_path
+
+    def test_core_handles_nonexistent_config_path(self, tmp_path: Path, capsys):
+        """Tests that a warning is printed for a non-existent --config path."""
+        non_existent_path = tmp_path / "nonexistent.json"
+        Scriber(root_path=tmp_path, config_path=non_existent_path)
+        captured = capsys.readouterr()
+        assert "Warning: Config file specified by --config not found" in captured.err
+
     def test_tree_representation(self, tmp_path: Path):
         """Checks if the folder tree string is formatted correctly."""
         (tmp_path / "src").mkdir()
