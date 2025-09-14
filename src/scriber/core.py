@@ -6,7 +6,7 @@ import sys
 from collections import Counter
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, TextIO
+from typing import Any, Dict, List, Optional, Set, TextIO, Union
 
 try:
     import tomllib
@@ -40,7 +40,7 @@ DEFAULT_CONFIG = {
 
 def _process_file_worker(
     file_path: Path,
-    root_path: Path,
+    containing_root: Path,
     hidden_patterns: Set[str],
     language_map: Dict[str, str],
     tokenizer: Optional[Any],
@@ -52,7 +52,7 @@ def _process_file_worker(
 
     Args:
         file_path: The path of the file to process.
-        root_path: The root path of the project for relative path calculations.
+        containing_root: The root directory that contains the file.
         hidden_patterns: A set of patterns for files whose content should be hidden.
         language_map: A dictionary mapping file extensions to languages.
         tokenizer: The tiktoken tokenizer instance.
@@ -67,7 +67,7 @@ def _process_file_worker(
 
         is_hidden = False
         if hidden_patterns:
-            relative_path_str = file_path.relative_to(root_path).as_posix()
+            relative_path_str = file_path.relative_to(containing_root).as_posix()
             if any(fnmatch.fnmatch(relative_path_str, pattern) for pattern in hidden_patterns):
                 is_hidden = True
 
@@ -112,19 +112,22 @@ class Scriber:
 
     def __init__(
         self,
-        root_path: Path,
+        root_path: Union[Path, List[Path]],
         config: Optional[Dict[str, Any]] = None,
         config_path: Optional[Path] = None
     ):
         """Initializes the Scriber instance.
 
         Args:
-            root_path: The absolute path to the root of the project to be mapped.
+            root_path: An absolute path or a list of absolute paths to the root
+                directories of the project(s) to be mapped.
             config: An optional dictionary of configuration settings. Takes the
                 highest precedence if provided.
             config_path: An optional path to a specific configuration file.
         """
-        self.root_path = root_path.resolve()
+        self.root_paths: List[Path] = ([root_path] if isinstance(root_path, Path) else root_path)
+        self.primary_root: Path = self.root_paths[0].resolve()
+
         self.mapped_files: List[Path] = []
         self._user_config_path = config_path
         self._user_config_dict = config
@@ -159,7 +162,7 @@ class Scriber:
 
     def _create_default_config_file(self) -> None:
         """Creates a default .scriber.json config file if no other config is found."""
-        config_path = self.root_path / self._CONFIG_FILE_NAME
+        config_path = self.primary_root / self._CONFIG_FILE_NAME
         print(f"✨ No config found. Creating default configuration at: {config_path}", file=sys.stderr)
 
         file_config = {
@@ -190,8 +193,8 @@ class Scriber:
                     print(f"Warning: Config file specified by --config not found at {self._user_config_path}", file=sys.stderr)
                     config_path_to_use = None
             else:
-                json_path = self.root_path / self._CONFIG_FILE_NAME
-                toml_path = self.root_path / "pyproject.toml"
+                json_path = self.primary_root / self._CONFIG_FILE_NAME
+                toml_path = self.primary_root / "pyproject.toml"
                 if json_path.is_file():
                     config_path_to_use = json_path
                 elif toml_path.is_file():
@@ -238,13 +241,30 @@ class Scriber:
 
         self.gitignore_spec: Optional[pathspec.PathSpec] = None
         if not use_gitignore: return
-        gitignore_path = self.root_path / ".gitignore"
+        gitignore_path = self.primary_root / ".gitignore"
         if gitignore_path.is_file():
             try:
                 with gitignore_path.open("r", encoding="utf-8") as f:
                     self.gitignore_spec = pathspec.PathSpec.from_lines("gitwildmatch", f)
             except IOError:
                 pass
+
+    def _find_containing_root(self, path: Path) -> Optional[Path]:
+        """Finds which root directory from self.root_paths contains the given path.
+
+        Args:
+            path: The path to check.
+
+        Returns:
+            The containing root path, or None if not found.
+        """
+        for r in self.root_paths:
+            try:
+                if path.is_relative_to(r):
+                    return r
+            except ValueError:
+                continue
+        return None
 
     def _is_binary(self, path: Path) -> bool:
         """Checks if a file is likely a binary file.
@@ -270,23 +290,28 @@ class Scriber:
         Returns:
             True if the path should be excluded, False otherwise.
         """
-        try:
-            relative_path = path.relative_to(self.root_path)
-        except ValueError:
+        containing_root = self._find_containing_root(path)
+        if not containing_root:
             return True
 
+        if self.gitignore_spec:
+            try:
+                relative_path_for_gitignore = path.relative_to(self.primary_root).as_posix()
+                if self.gitignore_spec.match_file(relative_path_for_gitignore):
+                    return True
+            except ValueError:
+                pass
+
+        relative_path = path.relative_to(containing_root)
         check_set = set(relative_path.parts)
         if not self.exclude_patterns.isdisjoint(check_set):
-            return True
-
-        relative_path_str = relative_path.as_posix()
-        if self.gitignore_spec and self.gitignore_spec.match_file(relative_path_str):
             return True
 
         if any(fnmatch.fnmatch(part, pattern) for pattern in self.exclude_patterns for part in check_set):
             return True
 
         if path.is_file():
+            relative_path_str = relative_path.as_posix()
             global_patterns = self.exclude_map.get("global", [])
             if any(fnmatch.fnmatch(relative_path_str, pattern) for pattern in global_patterns):
                 return True
@@ -313,10 +338,10 @@ class Scriber:
         """
         if not self.hidden_patterns:
             return False
-        try:
-            relative_path_str = path.relative_to(self.root_path).as_posix()
-        except ValueError:
+        containing_root = self._find_containing_root(path)
+        if not containing_root:
             return False
+        relative_path_str = path.relative_to(containing_root).as_posix()
         return any(fnmatch.fnmatch(relative_path_str, pattern) for pattern in self.hidden_patterns)
 
     def _collect_files(self, perform_binary_check: bool = True) -> None:
@@ -326,16 +351,17 @@ class Scriber:
             perform_binary_check: If False, skips the check for binary files.
         """
         collected = set()
-        for root, dirs, files in os.walk(self.root_path, topdown=True):
-            current_root = Path(root)
-            dirs[:] = [d for d in dirs if not self._is_excluded(current_root / d)]
-            for file in files:
-                file_path = current_root / file
-                if not self._is_excluded(file_path):
-                    if perform_binary_check and self._is_binary(file_path):
-                        self.stats['skipped_binary'] += 1
-                        continue
-                    collected.add(file_path)
+        for root_dir in self.root_paths:
+            for root, dirs, files in os.walk(root_dir, topdown=True):
+                current_root = Path(root)
+                dirs[:] = [d for d in dirs if not self._is_excluded(current_root / d)]
+                for file in files:
+                    file_path = current_root / file
+                    if not self._is_excluded(file_path):
+                        if perform_binary_check and self._is_binary(file_path):
+                            self.stats['skipped_binary'] += 1
+                            continue
+                        collected.add(file_path)
         self.mapped_files = sorted(list(collected))
 
     def map_project(self) -> None:
@@ -363,17 +389,19 @@ class Scriber:
         language_counts: Counter = Counter()
 
         with ProcessPoolExecutor() as executor:
-            futures = [
-                executor.submit(
-                    _process_file_worker,
-                    path,
-                    self.root_path,
-                    self.hidden_patterns,
-                    self._LANGUAGE_MAP,
-                    self._tokenizer,
-                )
-                for path in self.mapped_files
-            ]
+            futures = []
+            for path in self.mapped_files:
+                containing_root = self._find_containing_root(path)
+                if containing_root:
+                    futures.append(executor.submit(
+                        _process_file_worker,
+                        path,
+                        containing_root,
+                        self.hidden_patterns,
+                        self._LANGUAGE_MAP,
+                        self._tokenizer,
+                    ))
+
             for future in as_completed(futures):
                 try:
                     file_stats = future.result()
@@ -469,7 +497,7 @@ class Scriber:
                 self.map_tree_only()
             else:
                 self.map_project()
-        output_filepath = self.root_path / output_filename
+        output_filepath = self.primary_root / output_filename
         with output_filepath.open("w", encoding="utf-8") as f:
             self._write_output(f, tree_only, progress, task_id)
 
@@ -496,6 +524,24 @@ class Scriber:
             if progress and task_id is not None:
                 progress.update(task_id, advance=1)
 
+    def _get_display_path(self, file_path: Path) -> str:
+        """Gets the path to display in the output header.
+
+        Args:
+            file_path: The absolute path to the file.
+
+        Returns:
+            A string representing the path for display.
+        """
+        containing_root = self._find_containing_root(file_path)
+        if not containing_root:
+            return file_path.name
+
+        relative_path = file_path.relative_to(containing_root)
+        if len(self.root_paths) > 1:
+            return (Path(containing_root.name) / relative_path).as_posix()
+        return relative_path.as_posix()
+
     def _write_hidden_file_placeholder(self, f: TextIO, file_path: Path) -> None:
         """Writes a placeholder for a hidden file's content.
 
@@ -504,13 +550,13 @@ class Scriber:
             file_path: The path of the hidden file.
         """
         try:
-            relative_path = file_path.relative_to(self.root_path).as_posix()
+            display_path = self._get_display_path(file_path)
             file_size = file_path.stat().st_size
         except (OSError, ValueError):
             return
 
         f.write("\n" + "-" * 3 + "\n")
-        f.write(f"File: {relative_path}\nSize: {file_size} bytes\n" + "-" * 3 + "\n")
+        f.write(f"File: {display_path}\nSize: {file_size} bytes\n" + "-" * 3 + "\n")
         f.write("```\n[Content hidden based on configuration]\n```\n")
 
     def _write_file_content(self, f: TextIO, file_path: Path) -> None:
@@ -521,7 +567,7 @@ class Scriber:
             file_path: The path of the file to write.
         """
         try:
-            relative_path = file_path.relative_to(self.root_path).as_posix()
+            display_path = self._get_display_path(file_path)
             file_size = file_path.stat().st_size
             lang = self._get_language(file_path)
             content = file_path.read_text(encoding="utf-8", errors="ignore")
@@ -529,7 +575,7 @@ class Scriber:
             return
 
         f.write("\n" + "-" * 3 + "\n")
-        f.write(f"File: {relative_path}\nSize: {file_size} bytes\n" + "-" * 3 + "\n")
+        f.write(f"File: {display_path}\nSize: {file_size} bytes\n" + "-" * 3 + "\n")
         f.write(f"```{lang}\n{content}\n```\n")
 
     def _get_language(self, file_path: Path) -> str:
@@ -564,9 +610,15 @@ class Scriber:
                     lines.extend(format_tree(d[key], new_prefix))
             return lines
 
-        root_name = list(tree.keys())[0]
-        output_lines = [root_name]
-        output_lines.extend(format_tree(tree[root_name]))
+        if len(self.root_paths) == 1:
+            root_name = list(tree.keys())[0]
+            output_lines = [root_name]
+            output_lines.extend(format_tree(tree[root_name]))
+        else:
+            output_lines = []
+            for root_name, subtree in sorted(tree.items()):
+                output_lines.append(root_name)
+                output_lines.extend(format_tree(subtree))
         return "\n".join(output_lines)
 
     def _build_file_tree(self) -> Dict[str, Any]:
@@ -576,11 +628,29 @@ class Scriber:
             A dictionary representing the project's file hierarchy.
         """
         if not self.mapped_files: return {}
-        tree = {self.root_path.name: {}}
-        project_level = tree[self.root_path.name]
-        for path in self.mapped_files:
-            parts = path.relative_to(self.root_path).parts
-            current_level = project_level
-            for part in parts:
-                current_level = current_level.setdefault(part, {})
-        return tree
+
+        if len(self.root_paths) == 1:
+            tree = {self.primary_root.name: {}}
+            project_level = tree[self.primary_root.name]
+            for path in self.mapped_files:
+                parts = path.relative_to(self.primary_root).parts
+                current_level = project_level
+                for part in parts:
+                    current_level = current_level.setdefault(part, {})
+            return tree
+        else:
+            tree = {}
+            for path in self.mapped_files:
+                containing_root = self._find_containing_root(path)
+                if not containing_root:
+                    continue
+
+                root_name = containing_root.name
+                if root_name not in tree:
+                    tree[root_name] = {}
+
+                parts = path.relative_to(containing_root).parts
+                current_level = tree[root_name]
+                for part in parts:
+                    current_level = current_level.setdefault(part, {})
+            return tree

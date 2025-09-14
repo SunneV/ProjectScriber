@@ -244,7 +244,9 @@ class TestCore:
             "    └── main.py",
         ]
         actual_lines = tree_str.split('\n')
-        assert actual_lines == expected_lines
+        assert actual_lines[0] == tmp_path.name
+        assert actual_lines[1:] == expected_lines[1:]
+
 
     @pytest.mark.parametrize("filename, expected_lang", [
         ("test.py", "python"),
@@ -259,6 +261,40 @@ class TestCore:
         lang = scriber._get_language(Path(filename))
         assert lang == expected_lang
 
+    def test_multi_root_collection(self, tmp_path: Path):
+        """Tests that files from multiple root directories are collected."""
+        project_a = tmp_path / "project_a"
+        project_a.mkdir()
+        (project_a / "a.py").touch()
+
+        project_b = tmp_path / "project_b"
+        project_b.mkdir()
+        (project_b / "b.js").touch()
+
+        scriber = Scriber(root_path=[project_a, project_b])
+        scriber.map_project()
+        mapped_names = {p.name for p in scriber.mapped_files}
+
+        assert mapped_names == {"a.py", "b.js"}
+        assert len(scriber.mapped_files) == 2
+
+    def test_multi_root_tree_and_output(self, tmp_path: Path):
+        """Tests tree and output format for multiple roots."""
+        project_a = tmp_path / "project_a"
+        project_a.mkdir()
+        (project_a / "a.py").write_text("print('a')")
+
+        project_b = tmp_path / "project_b"
+        project_b.mkdir()
+        (project_b / "b.js").write_text("console.log('b')")
+
+        scriber = Scriber(root_path=[project_a, project_b])
+        output = scriber.get_output_as_string()
+
+        assert "project_a\n└── a.py" in output
+        assert "project_b\n└── b.js" in output
+        assert f"File: project_a/a.py" in output
+        assert f"File: project_b/b.js" in output
 
 # --- Test CLI Functionality ---
 

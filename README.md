@@ -11,32 +11,30 @@
 
 An intelligent tool to map, analyze, and compile project source code into a single, context-optimized text file for
 Large Language Models (LLMs), available as both a powerful CLI and a flexible Python library.
-
 -----
 
 ## 📖 Table of Contents
 
-- [🤔 Why ProjectScriber?](https://www.google.com/search?q=%23why-projectscriber)
-- [✨ Key Features](https://www.google.com/search?q=%23-key-features)
-- [🚀 Quick Start](https://www.google.com/search?q=%23-quick-start)
-- [💾 Installation](https://www.google.com/search?q=%23-installation)
-- [🖥️ Command-Line Usage](https://www.google.com/search?q=%23%EF%B8%8F-command-line-usage)
-- [📚 Library Usage (API)](https://www.google.com/search?q=%23-library-usage-api)
-- [⚙️ Configuration](https://www.google.com/search?q=%23%EF%B8%8F-configuration)
-- [🤝 Contributing & Development](https://www.google.com/search?q=%23-contributing--development)
+- [🤔 Why ProjectScriber?](#-why-projectscriber)
+- [✨ Key Features](#-key-features)
+- [🚀 Quick Start](#-quick-start)
+- [💾 Installation](#-installation)
+- [🖥️ Command-Line Usage](#️-command-line-usage)
+- [📚 Library Usage (API)](#-library-usage-api)
+- [⚙️ Configuration](#️-configuration)
+- [🤝 Contributing & Development](#-contributing--development)
 
 -----
 
 ## 🤔 Why ProjectScriber?
 
 When working with Large Language Models, providing the full context of a codebase is crucial for getting accurate
-analysis, documentation, or refactoring suggestions. Manually copying and pasting files is tedious, error-prone, and
+analysis, documentation, or refactoring suggestions.
+Manually copying and pasting files is tedious, error-prone, and
 unsustainable for projects of any real size.
-
 **ProjectScriber automates this entire process.** It intelligently scans your project, respects your existing
 `.gitignore` rules, applies custom filters, and bundles all relevant code into a single, clean, and readable format
 perfect for any AI model.
-
 <p align="center">
     📁 <b>Your Codebase</b> → 📦 <b>ProjectScriber</b> → 📋 <b>LLM-Ready Context</b>
 </p>
@@ -45,68 +43,70 @@ perfect for any AI model.
 
 ## ✨ Key Features
 
-| Feature                        | Description                                                                                                                                             |
-|:-------------------------------|:--------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **🌳 Smart Project Mapping**   | Generates a clear and intuitive tree view of your project's structure.                                                                                  |
-| **⚙️ Intelligent Filtering**   | Automatically respects `.gitignore` and supports custom `include`, `exclude`, and `hidden` patterns. You can even define language-specific exclusions\! |
-| **📊 In-depth Code Analysis**  | Provides a summary with total file size, estimated token count (using `cl100k_base`), and a language breakdown.                                         |
-| **🐍 Flexible Python Library** | Import and use the `Scriber` class directly in your Python projects for full programmatic control.                                                      |
-| **✨ Interactive CLI**          | A simple `scriber init` command walks you through creating a configuration file for your project.                                                       |
-| **📋 Clipboard Integration**   | Use the `--copy` flag to automatically send the entire output to your clipboard, ready for pasting.                                                     |
-| **💨 Lightweight & Fast**      | The default installation is minimal, and file analysis is multi-threaded for improved performance.                                                      |
+| Feature                        | Description                                                                                                                                            |
+|:-------------------------------|:-------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **🌳 Smart Project Mapping**   | Generates a clear and intuitive tree view of your project's structure.                                                                                 |
+| **⚙️ Intelligent Filtering**   | Automatically respects `.gitignore` and supports custom `include`, `exclude`, and `hidden` patterns. You can even define language-specific exclusions! |
+| **📊 In-depth Code Analysis**  | Provides a summary with total file size, estimated token count (using `cl100k_base`), and a language breakdown.                                        |
+| **🐍 Flexible Python Library** | Import and use the `Scriber` class directly in your Python projects for full programmatic control.                                                     |
+| **✨ Interactive CLI**          | A simple `scriber init` command walks you through creating a configuration file for your project.                                                      |
+| **📋 Clipboard Integration**   | Use the `--copy` flag to automatically send the entire output to your clipboard, ready for pasting.                                                    |
+| **💨 Lightweight & Fast**      | The default installation is minimal, and file analysis is multi-threaded for improved performance.                                                     |
 
 -----
 
 ## 🚀 Quick Start
 
-Get your first project map in under 30 seconds.
+Install the package directly from the [Python Package Index (PyPI)](https://pypi.org/project/project-scriber/).
 
 1. **Install Scriber:**
 
-   ```shell
-   pip install project-scriber
-   ```
+    ```shell
+    pip install project-scriber
 
-2. **Navigate to your project's root and run:**
+    ````
 
-   ```shell
-   scriber
-   ```
+2.  **Navigate to your project's root and run:**
 
-3. **That's it\!** A `scriber_output.txt` file is now in your directory. It will look something like this:
+    ```shell
+    scriber
+    ```
 
-   ````text
-   ===
-    Mapped Folder Structure
-   ===
+3.  **That's it\!** A `scriber_output.txt` file is now in your directory.
+    It will look something like this:
 
-   ProjectScriber
-   ├── .github
-   │   └── workflows
-   │       ├── ci.yml
-   │       └── release.yml
-   ├── README.md
-   └── src
-       └── scriber
-           ├── __init__.py
-           └── core.py
+    ````text
+    ===
+     Mapped Folder Structure
+    ===
 
-   ---
-   File: .github/workflows/ci.yml
-   Size: 512 bytes
-   ---
-   ```yaml
-   name: Continuous Integration
+    ProjectScriber
+    ├── .github
+    │   └── workflows
+    │       ├── ci.yml
+    │       └── release.yml
+    ├── README.md
+    └── src
+        └── scriber
+            ├── __init__.py
+            └── core.py
 
-   on:
-     push:
-       branches:
-         - develop
+    ---
+    File: .github/workflows/ci.yml
+    Size: 512 bytes
+    ---
+    ```yaml
+    name: Continuous Integration
 
-   jobs:
-     run_tests:
-   ...
-   ````
+    on:
+      push:
+        branches:
+          - develop
+
+    jobs:
+      run_tests:
+    ...
+    ````
 
 -----
 
@@ -136,18 +136,18 @@ pip install project-scriber[rich]
 
 ### Basic Commands
 
-- **Scan the current directory**:
-  ```shell
-  scriber
-  ```
-- **Scan a different directory**:
-  ```shell
-  scriber /path/to/your/project
-  ```
-- **Interactive Setup**: Create a configuration file (`.scriber.json` or `pyproject.toml`) for your project.
-  ```shell
-  scriber init
-  ```
+  - **Scan the current directory**:
+    ```shell
+    scriber
+    ```
+  - **Scan a different directory**:
+    ```shell
+    scriber /path/to/your/project
+    ```
+  - **Interactive Setup**: Create a configuration file (`.scriber.json` or `pyproject.toml`) for your project.
+    ```shell
+    scriber init
+    ```
 
 ### CLI Options
 
@@ -224,6 +224,35 @@ project_context = scriber.get_output_as_string()
 print(project_context)
 ```
 
+### Scanning Multiple Directories
+
+You can pass a list of paths to the `Scriber` constructor to map multiple directories into a single output. The first path in the list is treated as the "primary root" for loading configurations (`.gitignore`, `pyproject.toml`, etc.).
+
+```python
+from pathlib import Path
+from scriber import Scriber
+
+# Example: Scan both a 'backend' and a 'frontend' directory
+backend_path = Path('./my_backend_project')
+frontend_path = Path('./my_frontend_project')
+
+# Create dummy directories and files for the example
+backend_path.mkdir(exist_ok=True)
+(backend_path / "main.py").write_text("print('hello from backend')")
+frontend_path.mkdir(exist_ok=True)
+(frontend_path / "app.js").write_text("console.log('hello from frontend')")
+
+# Initialize with a list of paths. `backend_path` is the primary root.
+scriber = Scriber(root_path=[backend_path, frontend_path])
+
+# Get the combined context as a single string
+combined_context = scriber.get_output_as_string()
+print(combined_context)
+
+# The output will contain two separate trees and file content blocks,
+# with file paths prefixed by their root folder's name.
+```
+
 ### Accessing Intermediate Data
 
 You can also access the generated file tree and the list of mapped files before the final output is compiled.
@@ -243,7 +272,7 @@ print(tree_representation)
 print("\n--- Mapped Files ---")
 file_paths = scriber.get_mapped_files()
 for path in file_paths:
-    print(path.relative_to(scriber.root_path))
+    print(path.relative_to(scriber.primary_root))
 ```
 
 ### Practical Example: Preparing Context for an LLM
@@ -256,7 +285,7 @@ from scriber import Scriber
 
 
 def get_llm_context(project_path: Path, task: str) -> str:
-    """
+    '''
     Generates a complete project context string ready for an LLM.
 
     Args:
@@ -265,7 +294,7 @@ def get_llm_context(project_path: Path, task: str) -> str:
 
     Returns:
         A formatted string to be used as a prompt for an LLM.
-    """
+    '''
     # Initialize Scriber and get the project map
     scriber = Scriber(root_path=project_path)
     project_map = scriber.get_output_as_string()
@@ -292,7 +321,6 @@ def get_llm_context(project_path: Path, task: str) -> str:
 if __name__ == "__main__":
     my_project_path = Path('.')
     user_task = "Analyze the code for potential bugs and suggest improvements."
-
     llm_prompt = get_llm_context(my_project_path, user_task)
 
     print(llm_prompt)
@@ -307,22 +335,22 @@ if __name__ == "__main__":
 ProjectScriber is configured via a file in your project's root. It searches for configurations in the following order of
 precedence:
 
-1. **Direct `config` dictionary** (Library mode only).
-2. **`--config [path]` flag** (CLI mode only).
-3. **`.scriber.json`** in the project root.
-4. **`[tool.scriber]`** section in `pyproject.toml`.
-5. **Default Config**: If no file is found, a default `.scriber.json` is created on the first run.
+1.  **Direct `config` dictionary** (Library mode only).
+2.  **`--config [path]` flag** (CLI mode only).
+3.  **`.scriber.json`** in the project root.
+4.  **`[tool.scriber]`** section in `pyproject.toml`.
+5.  **Default Config**: If no file is found, a default `.scriber.json` is created on the first run.
 
 ### Configuration Keys
 
-| Key             | Type    | Default                | Description                                                                                                                               |
+|Key             | Type    |Default                |Description                                                                                                                               |
 |:----------------|:--------|:-----------------------|:------------------------------------------------------------------------------------------------------------------------------------------|
-| `use_gitignore` | boolean | `true`                 | If `true`, all patterns in the `.gitignore` file will be used for exclusion.                                                              |
-| `exclude`       | list    | See `core.py`          | A list of file/folder names or patterns to exclude globally (e.g., `"node_modules"`, `"*.log"`).                                          |
-| `include`       | list    | `[]`                   | If not empty, **only** files matching these patterns will be included.                                                                    |
-| `hidden`        | list    | `[]`                   | Files matching these patterns will appear in the tree but their content will be replaced with a placeholder. Useful for large lock files. |
-| `exclude_map`   | object  | `{}`                   | A dictionary for language-specific and global exclusion patterns. See example below.                                                      |
-| `output`        | string  | `"scriber_output.txt"` | The default name for the output file.                                                                                                     |
+| `use_gitignore` | boolean | `true`                 |If `true`, all patterns in the `.gitignore` file will be used for exclusion.                                                              |
+| `exclude`       | list    |See `core.py`          |A list of file/folder names or patterns to exclude globally (e.g., `"node_modules"`, `"*.log"`).                                          |
+| `include`       | list    |`[]`                   |If not empty, **only** files matching these patterns will be included.                                                                    |
+| `hidden`        | list    |`[]`                   |Files matching these patterns will appear in the tree but their content will be replaced with a placeholder. Useful for large lock files. |
+| `exclude_map`   | object  |`{}`                   |A dictionary for language-specific and global exclusion patterns. See example below.                                                      |
+| `output`        | string  |`"scriber_output.txt"` |The default name for the output file.                                                                                                     |
 
 ### Example `pyproject.toml` Configuration
 
@@ -376,14 +404,31 @@ Contributions are welcome\! If you have a suggestion or find a bug, please open 
 
 ### Development Setup
 
-1. **Prerequisites**: Python 3.10 or higher is required.
-2. **Clone and Install**:
-   ```shell
-   git clone [https://github.com/SunneV/ProjectScriber.git](https://github.com/SunneV/ProjectScriber.git)
-   cd ProjectScriber
-   # Install in editable mode with all dev dependencies
-   pip install -e .[dev]
-   ```
+1.  **Prerequisites**:
+    *   Python 3.10 or higher.
+
+2.  **Clone the Repository**:
+    ```shell
+    git clone https://github.com/SunneV/ProjectScriber.git
+    ```
+
+3.  **Navigate to the Project Directory**:
+    ```shell
+    cd ProjectScriber
+    ```
+
+4.  **Install Dependencies**:
+    Choose one of the following methods to install the project in editable mode with all development dependencies.
+
+    *   **Using `pip`**:
+        ```shell
+        pip install -e .[dev]
+        ```
+
+    *   **Using `uv`**:
+        ```shell
+        uv sync --all-packages --extra dev
+        ```
 
 ### Running Tests
 
