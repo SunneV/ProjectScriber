@@ -1,6 +1,6 @@
 [project]
 name = "project-scriber"
-version = "1.0.1"
+version = "1.1.0"
 authors = [
   { name="SunneV (Wojciech Mariusz Cichoń)", email="wojciech.m.cichon@gmail.com" },
 ]
@@ -19,7 +19,6 @@ classifiers = [
 dependencies = [
     "pathspec",
     "python-dotenv",
-    "rich",
     "tiktoken",
     "pyperclip",
     "tomlkit",
@@ -34,9 +33,11 @@ Issues = "https://github.com/SunneV/ProjectScriber/issues"
 scriber = "scriber.cli:main"
 
 [project.optional-dependencies]
+rich = ["rich"]
 dev = [
     "pytest",
-    "pytest-mock"
+    "pytest-mock",
+    "rich"
 ]
 
 [build-system]
