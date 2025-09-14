@@ -1,9 +1,11 @@
+import io
 import json
 from collections import Counter
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+import tiktoken
 
 try:
     import tomllib
@@ -13,6 +15,15 @@ except ImportError:
 from src.scriber.cli import format_bytes
 from src.scriber.cli import main as cli_main
 from src.scriber.core import Scriber
+
+
+def test_direct_import():
+    """Tests that the Scriber class can be imported directly from the package."""
+    try:
+        from src.scriber import Scriber
+    except ImportError:
+        pytest.fail("Could not import Scriber from src.scriber")
+    assert callable(Scriber)
 
 
 # --- Test Core Scriber Functionality ---
@@ -67,7 +78,8 @@ class TestCore:
         """Tests that binary files are detected and correctly skipped."""
         (tmp_path / "app.exe").write_bytes(b"\x4d\x5a\x90\x00\x03\x00\x00\x00")
 
-        scriber = Scriber(root_path=tmp_path)
+        config = {"include": ["app.exe"], "exclude": []}
+        scriber = Scriber(root_path=tmp_path, config=config)
         scriber.map_project()
 
         assert len(scriber.mapped_files) == 0
@@ -85,6 +97,109 @@ class TestCore:
 
         paths = {p.name for p in scriber.mapped_files}
         assert paths == {"main.py", "script.js"}
+
+    def test_exclude_map_dictionary(self, tmp_path: Path):
+        """Tests that the exclude_map dictionary filter works as intended."""
+        (tmp_path / "app.py").touch()
+        (tmp_path / "utils_test.py").touch()
+        (tmp_path / "script.js").touch()
+        (tmp_path / "archive.log").touch()
+        (tmp_path / "README.md").touch()
+
+        config = {
+            "exclude_map": {
+                "python": ["*_test.py"],
+                "global": ["*.log"]
+            },
+            "exclude": [],
+            "include": []
+        }
+        scriber = Scriber(root_path=tmp_path, config=config)
+        files = scriber.get_mapped_files()
+        mapped_names = {p.name for p in files}
+
+        assert "app.py" in mapped_names
+        assert "script.js" in mapped_names
+        assert "README.md" in mapped_names
+        assert "utils_test.py" not in mapped_names
+        assert "archive.log" not in mapped_names
+        assert len(mapped_names) == 3
+
+    def test_hidden_files_are_in_tree_but_content_is_skipped(self, tmp_path: Path):
+        """Tests that hidden files appear in the tree but their content is not in the output."""
+        (tmp_path / "main.py").write_text("print('hello')")
+        lock_content = "some-lock-file-content"
+        (tmp_path / "poetry.lock").write_text(lock_content)
+        config = {"hidden": ["poetry.lock"], "exclude": []}
+        (tmp_path / ".scriber.json").write_text(json.dumps(config))
+
+        scriber = Scriber(root_path=tmp_path)
+        scriber.map_project()
+
+        output_buffer = io.StringIO()
+        scriber._write_output(output_buffer, tree_only=False, progress=None, task_id=None)
+        output = output_buffer.getvalue()
+
+        assert "poetry.lock" in output
+        assert "[Content hidden based on configuration]" in output
+        assert lock_content not in output
+        assert "print('hello')" in output
+
+    def test_hidden_files_are_excluded_from_token_count(self, tmp_path: Path):
+        """Tests that hidden files contribute to size but not token count."""
+        main_py_content = "def main(): pass"
+        (tmp_path / "main.py").write_text(main_py_content)
+        (tmp_path / "poetry.lock").write_text("some-lock-file-content")
+        config = {"hidden": ["poetry.lock"], "exclude": [".scriber.json"]}
+        (tmp_path / ".scriber.json").write_text(json.dumps(config))
+
+        scriber = Scriber(root_path=tmp_path)
+        scriber.map_project()
+        stats = scriber.get_stats()
+
+        tokenizer = tiktoken.get_encoding("cl100k_base")
+        expected_tokens = len(tokenizer.encode(main_py_content))
+
+        assert stats["total_files"] == 2
+        assert stats["total_tokens"] == expected_tokens
+        assert stats["total_size_bytes"] == (
+            (tmp_path / "main.py").stat().st_size +
+            (tmp_path / "poetry.lock").stat().st_size
+        )
+
+    def test_init_with_direct_config_dictionary(self, tmp_path: Path):
+        """Tests that Scriber can be configured directly with a dictionary."""
+        (tmp_path / "app.py").touch()
+        (tmp_path / "data.json").touch()
+        direct_config = {"include": ["*.py"], "exclude": []}
+
+        scriber = Scriber(root_path=tmp_path, config=direct_config)
+        files = scriber.get_mapped_files()
+
+        paths = {p.name for p in files}
+        assert paths == {"app.py"}
+        assert scriber.config_path_used is None
+
+    def test_get_output_as_string(self, tmp_path: Path):
+        """Tests that the full project map can be retrieved as a string."""
+        (tmp_path / "main.py").write_text("print('test')")
+        scriber = Scriber(root_path=tmp_path)
+        output_str = scriber.get_output_as_string()
+
+        assert isinstance(output_str, str)
+        assert "Mapped Folder Structure" in output_str
+        assert "main.py" in output_str
+        assert "print('test')" in output_str
+
+    def test_getters_trigger_map_project_automatically(self, tmp_path: Path):
+        """Tests that getter methods automatically call map_project if not already run."""
+        (tmp_path / "test.txt").touch()
+        scriber = Scriber(root_path=tmp_path)
+
+        assert not scriber.mapped_files
+        stats = scriber.get_stats()
+        assert len(scriber.mapped_files) == 1
+        assert stats["total_files"] == 1
 
     def test_core_loads_external_toml_config(self, tmp_path: Path):
         """Tests core logic loads config from an external pyproject.toml via config_path."""
@@ -129,7 +244,9 @@ class TestCore:
             "    └── main.py",
         ]
         actual_lines = tree_str.split('\n')
-        assert actual_lines == expected_lines
+        assert actual_lines[0] == tmp_path.name
+        assert actual_lines[1:] == expected_lines[1:]
+
 
     @pytest.mark.parametrize("filename, expected_lang", [
         ("test.py", "python"),
@@ -144,6 +261,40 @@ class TestCore:
         lang = scriber._get_language(Path(filename))
         assert lang == expected_lang
 
+    def test_multi_root_collection(self, tmp_path: Path):
+        """Tests that files from multiple root directories are collected."""
+        project_a = tmp_path / "project_a"
+        project_a.mkdir()
+        (project_a / "a.py").touch()
+
+        project_b = tmp_path / "project_b"
+        project_b.mkdir()
+        (project_b / "b.js").touch()
+
+        scriber = Scriber(root_path=[project_a, project_b])
+        scriber.map_project()
+        mapped_names = {p.name for p in scriber.mapped_files}
+
+        assert mapped_names == {"a.py", "b.js"}
+        assert len(scriber.mapped_files) == 2
+
+    def test_multi_root_tree_and_output(self, tmp_path: Path):
+        """Tests tree and output format for multiple roots."""
+        project_a = tmp_path / "project_a"
+        project_a.mkdir()
+        (project_a / "a.py").write_text("print('a')")
+
+        project_b = tmp_path / "project_b"
+        project_b.mkdir()
+        (project_b / "b.js").write_text("console.log('b')")
+
+        scriber = Scriber(root_path=[project_a, project_b])
+        output = scriber.get_output_as_string()
+
+        assert "project_a\n└── a.py" in output
+        assert "project_b\n└── b.js" in output
+        assert f"File: project_a/a.py" in output
+        assert f"File: project_b/b.js" in output
 
 # --- Test CLI Functionality ---
 
@@ -188,7 +339,7 @@ class TestCli:
         """Tests the interactive 'init' command for config file creation."""
         mocker.patch('pathlib.Path.cwd', return_value=tmp_path)
         mock_confirm.return_value = False
-        mock_prompt.side_effect = ["*.tmp, *.log", "*.py", "1"]
+        mock_prompt.side_effect = ["*.tmp, *.log", "*.py", "", "1"]
 
         mocker.patch('sys.argv', ['scriber', 'init'])
         cli_main()
@@ -213,7 +364,7 @@ class TestCli:
         pyproject_path.write_text("[project]\nname = 'test-project'")
 
         mock_confirm.return_value = True
-        mock_prompt.side_effect = ["*.log, .env", "*.py", "2"]
+        mock_prompt.side_effect = ["*.log, .env", "*.py", "*.lock", "2"]
 
         mocker.patch('sys.argv', ['scriber', 'init'])
         cli_main()
@@ -229,6 +380,7 @@ class TestCli:
         assert scriber_config['use_gitignore'] is True
         assert scriber_config['exclude'] == ['*.log', '.env']
         assert scriber_config['include'] == ['*.py']
+        assert scriber_config['hidden'] == ['*.lock']
 
     @pytest.mark.parametrize("bytes_val, expected_str", [
         (500, "500 Bytes"),

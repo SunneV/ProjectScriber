@@ -11,17 +11,18 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Python 3.10
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
 
+      - name: Install uv
+        run: pipx install uv
+
       - name: Install dependencies
-        run: |
-          pip install --upgrade pip
-          pip install -e .[dev]
+        run:  uv pip install -e .[dev] --system
 
       - name: Run tests
         run: pytest
