@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.1] - 2025-09-15
+
+### Added
+- A `--single-process` flag and `single_process` configuration option to run file analysis in a single thread, ensuring compatibility with environments like Celery that restrict child process creation.
+- A `--copy-only` flag to generate the project map and copy it directly to the clipboard without creating an output file.
+
+### Changed
+- Refactored the internal configuration management from a dictionary to a `dataclass` (`ScriberConfig`). This improves type safety, code readability, and makes programmatic configuration more intuitive and less error-prone.
+- Enhanced the `exclude` configuration option to support `.gitignore`-style pattern matching. This allows for more precise rules, such as matching directories only (e.g., `build/`) or root-level files (e.g., `/config.yaml`).
+
+
 ## [1.1.0] - 2025-09-15
 
 ### Added
