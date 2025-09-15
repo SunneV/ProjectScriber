@@ -1,6 +1,7 @@
 import fnmatch
 import io
 import json
+import multiprocessing
 import os
 import sys
 from collections import Counter
@@ -13,29 +14,16 @@ try:
 except ImportError:
     import tomli as tomllib
 
+try:
+    import pathspec
+except ImportError:
+    pathspec = None
+
 import tiktoken
 
-_DEFAULT_OUTPUT_FILENAME = "scriber_output.txt"
-_CONFIG_FILE_NAME = ".scriber.json"
-DEFAULT_CONFIG = {
-    "use_gitignore": True,
-    "exclude": [
-        "LICENSE",
-        ".git",
-        ".idea", ".vscode", ".project", ".settings", ".classpath",
-        "__pycache__", "*.pyc", ".venv", "venv", ".pytest_cache", "uv.lock",
-        "node_modules", "npm-debug.log*", "yarn-error.log",
-        "build", "dist", "target", "bin", "obj", "out",
-        "vendor", "bower_components",
-        "*.log", "*.lock", "*.tmp", "temp", "tmp",
-        ".DS_Store", "Thumbs.db", "*~", "*.swp", "*.swo",
-        _DEFAULT_OUTPUT_FILENAME, _CONFIG_FILE_NAME
-    ],
-    "exclude_map": {},
-    "include": [],
-    "hidden": [],
-    "output": _DEFAULT_OUTPUT_FILENAME,
-}
+from .config import ScriberConfig
+
+DEFAULT_CONFIG = ScriberConfig()
 
 
 def _process_file_worker(
@@ -87,7 +75,7 @@ class Scriber:
     project mapping process, access intermediate data like file lists and
     statistics, and get the final output as a string for further processing.
     """
-    _CONFIG_FILE_NAME = _CONFIG_FILE_NAME
+    _CONFIG_FILE_NAME = ".scriber.json"
     _LANGUAGE_MAP = {
         ".asm": "asm", ".s": "asm", ".html": "html", ".htm": "html", ".css": "css",
         ".scss": "scss", ".sass": "sass", ".less": "less", ".js": "javascript",
@@ -113,7 +101,7 @@ class Scriber:
     def __init__(
         self,
         root_path: Union[Path, List[Path]],
-        config: Optional[Dict[str, Any]] = None,
+        config: Optional[Union[Dict[str, Any], ScriberConfig]] = None,
         config_path: Optional[Path] = None
     ):
         """Initializes the Scriber instance.
@@ -121,23 +109,27 @@ class Scriber:
         Args:
             root_path: An absolute path or a list of absolute paths to the root
                 directories of the project(s) to be mapped.
-            config: An optional dictionary of configuration settings. Takes the
-                highest precedence if provided.
+            config: An optional dictionary or ScriberConfig object of settings.
+                Takes the highest precedence if provided.
             config_path: An optional path to a specific configuration file.
         """
-        self.root_paths: List[Path] = ([root_path] if isinstance(root_path, Path) else root_path)
-        self.primary_root: Path = self.root_paths[0].resolve()
+        raw_paths = [root_path] if isinstance(root_path, Path) else root_path
+        self.root_paths: List[Path] = [p.resolve() for p in raw_paths]
+        self.primary_root: Path = self.root_paths[0]
 
         self.mapped_files: List[Path] = []
         self._user_config_path = config_path
-        self._user_config_dict = config
-        self.config: Dict[str, Any] = {}
+        self._user_config_input = config
+        self.config: ScriberConfig = ScriberConfig()
         self.config_path_used: Optional[Path] = None
         self.gitignore_spec: Optional[Any] = None
+        self.dir_exclude_spec: Optional[Any] = None
+        self.general_exclude_spec: Optional[Any] = None
         self.hidden_patterns: Set[str] = set()
         self.include_patterns: List[str] = []
-        self.exclude_patterns: Set[str] = set()
+        self.exclude_patterns: List[str] = []
         self.exclude_map: Dict[str, List[str]] = {}
+        self.single_process: bool = False
 
         self.stats = {}
         self._has_mapped = False
@@ -166,10 +158,10 @@ class Scriber:
         print(f"✨ No config found. Creating default configuration at: {config_path}", file=sys.stderr)
 
         file_config = {
-            "use_gitignore": DEFAULT_CONFIG.get("use_gitignore", True),
-            "exclude": DEFAULT_CONFIG.get("exclude", []),
-            "include": DEFAULT_CONFIG.get("include", []),
-            "hidden": DEFAULT_CONFIG.get("hidden", [])
+            "use_gitignore": DEFAULT_CONFIG.use_gitignore,
+            "exclude": DEFAULT_CONFIG.exclude,
+            "include": DEFAULT_CONFIG.include,
+            "hidden": DEFAULT_CONFIG.hidden
         }
         try:
             with config_path.open("w", encoding="utf-8") as f:
@@ -178,12 +170,15 @@ class Scriber:
             print(f"❌ Could not create default config file: {e}", file=sys.stderr)
 
     def _load_config(self) -> None:
-        """Loads configuration with a clear precedence: direct dict > config_path > local files."""
-        config = DEFAULT_CONFIG.copy()
+        """Loads configuration with a clear precedence: direct config > config_path > local files."""
+        config_data = DEFAULT_CONFIG.to_dict()
         config_source_loaded = False
 
-        if self._user_config_dict:
-            config.update(self._user_config_dict)
+        if self._user_config_input:
+            if isinstance(self._user_config_input, ScriberConfig):
+                config_data.update(self._user_config_input.to_dict())
+            else:
+                config_data.update(self._user_config_input)
             config_source_loaded = True
             self.config_path_used = None
         else:
@@ -207,24 +202,34 @@ class Scriber:
                         with config_path_to_use.open("rb") as f:
                             toml_data = tomllib.load(f)
                             if "tool" in toml_data and "scriber" in toml_data["tool"]:
-                                config.update(toml_data["tool"]["scriber"])
+                                config_data.update(toml_data["tool"]["scriber"])
                                 config_source_loaded = True
                     else:
                         with config_path_to_use.open("r", encoding="utf-8") as f:
-                            config.update(json.load(f))
+                            config_data.update(json.load(f))
                             config_source_loaded = True
                 except (json.JSONDecodeError, tomllib.TOMLDecodeError, IOError) as e:
                     print(f"Error parsing config file {self.config_path_used}: {e}", file=sys.stderr)
 
-        if not config_source_loaded and not self._user_config_dict and self._user_config_path is None:
+        if not config_source_loaded and not self._user_config_input and self._user_config_path is None:
             self._create_default_config_file()
 
-        self.config = config
-        self.include_patterns: List[str] = self.config.get("include", [])
-        self.exclude_patterns: Set[str] = set(self.config.get("exclude", []))
-        self.hidden_patterns: Set[str] = set(self.config.get("hidden", []))
-        self.exclude_map: Dict[str, List[str]] = self.config.get("exclude_map", {})
-        self._load_gitignore(self.config.get("use_gitignore", True))
+        self.config = ScriberConfig(**config_data)
+        self.include_patterns = self.config.include
+        self.exclude_patterns = self.config.exclude
+        self.hidden_patterns = set(self.config.hidden)
+        self.exclude_map = self.config.exclude_map
+        self.single_process = self.config.single_process
+
+        if not pathspec:
+            print("Warning: 'pathspec' not installed. .gitignore and advanced exclude patterns will be ignored.", file=sys.stderr)
+        else:
+            dir_exclude_patterns = [p for p in self.exclude_patterns if p.endswith('/')]
+            general_exclude_patterns = [p for p in self.exclude_patterns if not p.endswith('/')]
+
+            self.dir_exclude_spec = pathspec.PathSpec.from_lines("gitwildmatch", dir_exclude_patterns)
+            self.general_exclude_spec = pathspec.PathSpec.from_lines("gitwildmatch", general_exclude_patterns)
+            self._load_gitignore(self.config.use_gitignore)
 
     def _load_gitignore(self, use_gitignore: bool) -> None:
         """Loads gitignore patterns from the .gitignore file if enabled.
@@ -232,15 +237,10 @@ class Scriber:
         Args:
             use_gitignore: A boolean indicating whether to use .gitignore rules.
         """
-        try:
-            import pathspec
-        except ImportError:
-            print("Warning: 'pathspec' not installed. .gitignore files will be ignored.", file=sys.stderr)
-            self.gitignore_spec = None
+        self.gitignore_spec: Optional[pathspec.PathSpec] = None
+        if not use_gitignore or not pathspec:
             return
 
-        self.gitignore_spec: Optional[pathspec.PathSpec] = None
-        if not use_gitignore: return
         gitignore_path = self.primary_root / ".gitignore"
         if gitignore_path.is_file():
             try:
@@ -294,24 +294,33 @@ class Scriber:
         if not containing_root:
             return True
 
+        # When checking a directory for pruning, its path might not have a trailing
+        # slash, so we treat it as such for matching.
+        is_dir = path.is_dir()
+
         if self.gitignore_spec:
             try:
                 relative_path_for_gitignore = path.relative_to(self.primary_root).as_posix()
+                if is_dir and not relative_path_for_gitignore.endswith('/'):
+                    relative_path_for_gitignore += '/'
                 if self.gitignore_spec.match_file(relative_path_for_gitignore):
                     return True
             except ValueError:
                 pass
 
-        relative_path = path.relative_to(containing_root)
-        check_set = set(relative_path.parts)
-        if not self.exclude_patterns.isdisjoint(check_set):
-            return True
+        relative_path_str = path.relative_to(containing_root).as_posix()
 
-        if any(fnmatch.fnmatch(part, pattern) for pattern in self.exclude_patterns for part in check_set):
-            return True
+        if is_dir:
+            path_for_dir_spec = relative_path_str + '/'
+            if self.dir_exclude_spec and self.dir_exclude_spec.match_file(path_for_dir_spec):
+                return True
+            if self.general_exclude_spec and self.general_exclude_spec.match_file(relative_path_str):
+                return True
+        else:  # Is a file
+            if self.general_exclude_spec and self.general_exclude_spec.match_file(relative_path_str):
+                return True
 
         if path.is_file():
-            relative_path_str = relative_path.as_posix()
             global_patterns = self.exclude_map.get("global", [])
             if any(fnmatch.fnmatch(relative_path_str, pattern) for pattern in global_patterns):
                 return True
@@ -379,7 +388,7 @@ class Scriber:
         self._has_mapped = True
 
     def _gather_stats(self) -> None:
-        """Gathers statistics about the mapped files using multi-processing."""
+        """Gathers statistics about the mapped files."""
         if not self.mapped_files:
             return
 
@@ -388,28 +397,43 @@ class Scriber:
         total_tokens = 0
         language_counts: Counter = Counter()
 
-        with ProcessPoolExecutor() as executor:
-            futures = []
+        if self.single_process:
             for path in self.mapped_files:
                 containing_root = self._find_containing_root(path)
                 if containing_root:
-                    futures.append(executor.submit(
-                        _process_file_worker,
-                        path,
-                        containing_root,
-                        self.hidden_patterns,
-                        self._LANGUAGE_MAP,
-                        self._tokenizer,
-                    ))
+                    try:
+                        file_stats = _process_file_worker(
+                            path, containing_root, self.hidden_patterns, self._LANGUAGE_MAP, self._tokenizer
+                        )
+                        total_size += file_stats["size"]
+                        total_tokens += file_stats["tokens"]
+                        language_counts[file_stats["lang"]] += 1
+                    except Exception as exc:
+                        print(f"File processing generated an exception: {exc}", file=sys.stderr)
+        else:
+            context = multiprocessing.get_context("spawn")
+            with ProcessPoolExecutor(mp_context=context) as executor:
+                futures = []
+                for path in self.mapped_files:
+                    containing_root = self._find_containing_root(path)
+                    if containing_root:
+                        futures.append(executor.submit(
+                            _process_file_worker,
+                            path,
+                            containing_root,
+                            self.hidden_patterns,
+                            self._LANGUAGE_MAP,
+                            self._tokenizer,
+                        ))
 
-            for future in as_completed(futures):
-                try:
-                    file_stats = future.result()
-                    total_size += file_stats["size"]
-                    total_tokens += file_stats["tokens"]
-                    language_counts[file_stats["lang"]] += 1
-                except Exception as exc:
-                    print(f"File processing generated an exception: {exc}", file=sys.stderr)
+                for future in as_completed(futures):
+                    try:
+                        file_stats = future.result()
+                        total_size += file_stats["size"]
+                        total_tokens += file_stats["tokens"]
+                        language_counts[file_stats["lang"]] += 1
+                    except Exception as exc:
+                        print(f"File processing generated an exception: {exc}", file=sys.stderr)
 
         self.stats['total_size_bytes'] = total_size
         self.stats['total_tokens'] = total_tokens
@@ -463,13 +487,15 @@ class Scriber:
             self.map_project()
         return self._get_tree_representation()
 
-    def get_output_as_string(self, tree_only: bool = False) -> str:
+    def get_output_as_string(self, tree_only: bool = False, progress=None, task_id=None) -> str:
         """Generates the consolidated project output and returns it as a string.
 
         If the project has not been mapped yet, `map_project()` will be called first.
 
         Args:
             tree_only: If True, the string will only contain the file tree.
+            progress: An optional Rich Progress instance for updating a progress bar.
+            task_id: An optional ID for the task in the Rich Progress instance.
 
         Returns:
             A string containing the complete project map and file contents.
@@ -480,7 +506,7 @@ class Scriber:
             else:
                 self.map_project()
         output_buffer = io.StringIO()
-        self._write_output(output_buffer, tree_only, progress=None, task_id=None)
+        self._write_output(output_buffer, tree_only, progress=progress, task_id=task_id)
         return output_buffer.getvalue()
 
     def generate_output_file(self, output_filename: str, tree_only: bool = False, progress=None, task_id=None) -> None:

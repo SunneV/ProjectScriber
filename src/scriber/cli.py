@@ -1,4 +1,5 @@
 import argparse
+import io
 import json
 import os
 import re
@@ -21,6 +22,7 @@ try:
     from rich.prompt import Confirm, Prompt
     from rich.table import Table
     from rich.text import Text
+
     RICH_AVAILABLE = True
 except ImportError:
     RICH_AVAILABLE = False
@@ -121,17 +123,23 @@ def handle_init(args: argparse.Namespace, console: Any, rich_available: bool):
 
     if rich_available:
         config["use_gitignore"] = Confirm.ask("✨ Would you like to respect `.gitignore` rules?", default=True)
-        default_exclude = ", ".join(DEFAULT_CONFIG.get("exclude", []))
+        default_exclude = ", ".join(DEFAULT_CONFIG.exclude)
         exclude_str = Prompt.ask("📂 Enter patterns to exclude (comma-separated)", default=default_exclude)
         include_str = Prompt.ask("📄 Enter patterns to include (optional, comma-separated)", default="")
-        hidden_str = Prompt.ask("🙈 Enter patterns to hide content for (e.g., lock files, optional, comma-separated)", default="")
+        hidden_str = Prompt.ask("🙈 Enter patterns to hide content for (e.g., lock files, optional, comma-separated)",
+                                default="")
+        config["single_process"] = Confirm.ask("⚙️ Run in a single process? (for Celery or similar environments)",
+                                               default=False)
     else:
         answer = input("✨ Would you like to respect `.gitignore` rules? (Y/n) ").strip().lower()
         config["use_gitignore"] = answer not in ['n', 'no']
-        default_exclude = ", ".join(DEFAULT_CONFIG.get("exclude", []))
-        exclude_str = input(f"📂 Enter patterns to exclude (comma-separated, default: {default_exclude}): ") or default_exclude
+        default_exclude = ", ".join(DEFAULT_CONFIG.exclude)
+        exclude_str = input(
+            f"📂 Enter patterns to exclude (comma-separated, default: {default_exclude}): ") or default_exclude
         include_str = input("📄 Enter patterns to include (optional, comma-separated): ")
         hidden_str = input("🙈 Enter patterns to hide content for (e.g., lock files, optional, comma-separated): ")
+        answer = input("⚙️ Run in a single process? (for Celery or similar environments) (y/N) ").strip().lower()
+        config["single_process"] = answer in ['y', 'yes']
 
     config["exclude"] = [item.strip() for item in exclude_str.split(',') if item.strip()]
     include_patterns = [item.strip() for item in include_str.split(',') if item.strip()]
@@ -167,20 +175,24 @@ def run_scriber(args: argparse.Namespace, console: Any, version: str, rich_avail
     """
     if rich_available:
         title_text = Text(f"Scriber v{version}", justify="center", style="bold magenta")
-        subtitle_text = Text("An intelligent tool to map, analyze, and compile project source code for LLM context.", justify="center", style="cyan")
+        subtitle_text = Text("An intelligent tool to map, analyze, and compile project source code for LLM context.",
+                             justify="center", style="cyan")
         console.print(Panel(Text.assemble(title_text, "\n", subtitle_text), expand=False, border_style="blue"))
     else:
         console.print(f"--- Scriber v{version} ---")
 
     scriber = Scriber(args.root_path.resolve(), config_path=args.config)
-    output_filename = args.output or scriber.config.get("output", "project_structure.txt")
+    if args.single_process:
+        scriber.single_process = True
 
     scriber.map_project()
 
     progress = None
     task_id = None
     if rich_available:
-        progress_manager = Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}"), BarColumn(), TextColumn("[progress.percentage]{task.percentage:>3.0f}%"), console=console, transient=True)
+        progress_manager = Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}"),
+                                    BarColumn(), TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+                                    console=console, transient=True)
         total_files = scriber.get_file_count()
         if total_files > 0 and not args.tree_only:
             task_id = progress_manager.add_task("[green]Processing files...", total=total_files)
@@ -188,32 +200,37 @@ def run_scriber(args: argparse.Namespace, console: Any, version: str, rich_avail
     else:
         console.print("Processing files...")
 
+    output_content = ""
     if progress:
         with progress:
-            scriber.generate_output_file(output_filename, tree_only=args.tree_only, progress=progress, task_id=task_id)
+            output_content = scriber.get_output_as_string(tree_only=args.tree_only, progress=progress, task_id=task_id)
     else:
-        scriber.generate_output_file(output_filename, tree_only=args.tree_only)
+        output_content = scriber.get_output_as_string(tree_only=args.tree_only)
 
     stats = scriber.get_stats()
     config_file_display = str(scriber.config_path_used) if scriber.config_path_used else "Defaults"
 
     if rich_available:
-        summary_table = Table(box=rich.box.ROUNDED, show_header=False, title="[bold]Run Summary[/]", title_justify="left")
+        summary_table = Table(box=rich.box.ROUNDED, show_header=False, title="[bold]Run Summary[/]",
+                              title_justify="left")
         summary_table.add_column("Parameter", style="cyan", no_wrap=True)
         summary_table.add_column("Value", style="magenta")
         summary_table.add_row("Project Path", str(args.root_path.resolve()))
         summary_table.add_row("Config File", config_file_display)
-        summary_table.add_row("Output File", output_filename)
+        if not args.copy_only:
+            summary_table.add_row("Output File", args.output or scriber.config.output)
         console.print(summary_table)
     else:
         console.print("\n--- Run Summary ---")
         console.print(f"Project Path: {str(args.root_path.resolve())}")
         console.print(f"Config File: {config_file_display}")
-        console.print(f"Output File: {output_filename}")
+        if not args.copy_only:
+            console.print(f"Output File: {args.output or scriber.config.output}")
 
     if stats['total_files'] > 0:
         if rich_available:
-            results_table = Table(box=rich.box.ROUNDED, show_header=False, title="[bold]📊 Analysis Results[/]", title_justify="left")
+            results_table = Table(box=rich.box.ROUNDED, show_header=False, title="[bold]📊 Analysis Results[/]",
+                                  title_justify="left")
             results_table.add_column("Metric", style="cyan", no_wrap=True)
             results_table.add_column("Value", style="magenta", justify="right")
             results_table.add_row("Files Mapped", str(stats['total_files']))
@@ -243,16 +260,24 @@ def run_scriber(args: argparse.Namespace, console: Any, version: str, rich_avail
         else:
             console.print("No files were mapped based on the current configuration.")
 
-    output_location = Path(args.root_path).resolve() / output_filename
-    console.print("\n✅ [green]Success! Output saved to:[/green]")
-    console.print(str(output_location))
-
-    if args.copy:
+    if not args.copy_only:
+        output_filename = args.output or scriber.config.output
+        output_location = Path(args.root_path).resolve() / output_filename
         try:
-            with open(output_location, 'r', encoding='utf-8') as f:
-                content = f.read()
-                pyperclip.copy(content)
-            console.print("📋 [green]Content copied to clipboard.[/green]")
+            with open(output_location, 'w', encoding='utf-8') as f:
+                f.write(output_content)
+            console.print("\n✅ [green]Success! Output saved to:[/green]")
+            console.print(str(output_location))
+        except IOError as e:
+            console.print(f"\n❌ [bold red]Error saving output file:[/] {e}")
+
+    if args.copy or args.copy_only:
+        try:
+            pyperclip.copy(output_content)
+            if args.copy_only:
+                console.print("\n✅ [green]Success! Output copied to clipboard.[/green]")
+            else:
+                console.print("📋 [green]Content copied to clipboard.[/green]")
         except Exception as e:
             console.print(f"❌ [bold red]Could not copy to clipboard: {e}[/bold red]")
 
@@ -269,8 +294,10 @@ def main() -> None:
     except metadata.PackageNotFoundError:
         version = "1.0.0 (local)"
 
-    parser = argparse.ArgumentParser(description="Scriber: An intelligent tool to map, analyze, and compile project source code for LLM context.")
-    parser.add_argument("-v", "--version", action="version", version=f"%(prog)s v{version}", help="Show the version number and exit.")
+    parser = argparse.ArgumentParser(
+        description="Scriber: An intelligent tool to map, analyze, and compile project source code for LLM context.")
+    parser.add_argument("-v", "--version", action="version", version=f"%(prog)s v{version}",
+                        help="Show the version number and exit.")
     subparsers = parser.add_subparsers(dest="command", title="Commands")
 
     init_parser = subparsers.add_parser("init", help="Create a new configuration file interactively.")
@@ -282,11 +309,19 @@ def main() -> None:
     if exec_mode == 'RUN_PY':
         del os.environ['SCRIBER_EXEC_MODE']
 
-    run_parser.add_argument("root_path", nargs="?", default=os.environ.get("PROJECT_SCRIBER_ROOT", default_path), type=Path, help="The root directory of the project to map. Defaults to the current directory.")
+    run_parser.add_argument("root_path", nargs="?", default=os.environ.get("PROJECT_SCRIBER_ROOT", default_path),
+                            type=Path,
+                            help="The root directory of the project to map. Defaults to the current directory.")
     run_parser.add_argument("-o", "--output", help="The name of the output file. Overrides config file settings.")
-    run_parser.add_argument("--config", default=os.environ.get("PROJECT_SCRIBER_CONFIG"), type=Path, help="Path to a custom configuration file.")
+    run_parser.add_argument("--config", default=os.environ.get("PROJECT_SCRIBER_CONFIG"), type=Path,
+                            help="Path to a custom configuration file.")
     run_parser.add_argument("-c", "--copy", action="store_true", help="Copy the final output to the clipboard.")
-    run_parser.add_argument("--tree-only", action="store_true", help="Generate only the file tree structure without file content.")
+    run_parser.add_argument("--copy-only", action="store_true",
+                            help="Generate the output and copy it to the clipboard without saving to a file.")
+    run_parser.add_argument("--tree-only", action="store_true",
+                            help="Generate only the file tree structure without file content.")
+    run_parser.add_argument("--single-process", action="store_true",
+                            help="Run in a single process to avoid issues in daemonic environments.")
     run_parser.set_defaults(func=lambda args: run_scriber(args, console, version, RICH_AVAILABLE))
 
     args_to_parse = sys.argv[1:]
