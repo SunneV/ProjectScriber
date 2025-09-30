@@ -34,14 +34,24 @@ class SimpleConsole:
     """A fallback console that mimics rich.Console with simple print statements."""
 
     def print(self, message: Any = "") -> None:
-        """Strips rich markup and prints the message.
+        """Strips rich markup and prints the message, handling potential Unicode errors.
+
+        This method attempts to print the message directly. If a UnicodeEncodeError
+        occurs, it falls back to encoding the message using the system's stdout
+        encoding, replacing any unsupported characters to prevent crashes.
 
         Args:
             message: The object or text to print.
         """
         message_str = str(message)
         cleaned_message = re.sub(r'\[/?[a-zA-Z\s=]+\]', '', message_str)
-        print(cleaned_message)
+        try:
+            print(cleaned_message)
+        except UnicodeEncodeError:
+            safe_message = cleaned_message.encode(
+                sys.stdout.encoding, errors='replace'
+            ).decode(sys.stdout.encoding)
+            print(safe_message)
 
 
 def format_bytes(byte_count: int) -> str:
@@ -285,7 +295,16 @@ def run_scriber(args: argparse.Namespace, console: Any, version: str, rich_avail
 def main() -> None:
     """Parses arguments and runs the appropriate command."""
     if RICH_AVAILABLE:
-        console = Console()
+        # On Windows, the default console (cmd.exe) often doesn't support Unicode
+        # emojis. We detect this environment and disable emojis to prevent crashes,
+        # unless we are in a modern terminal like Windows Terminal.
+        is_legacy_windows = (
+            sys.platform == "win32"
+            and not os.environ.get("WT_SESSION")
+            and not os.environ.get("TERMINUS_SUCKS")
+            and sys.stdout.encoding != "utf-8"
+        )
+        console = Console(emoji=not is_legacy_windows)
     else:
         console = SimpleConsole()
 
