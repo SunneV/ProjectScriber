@@ -22,7 +22,7 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           command: build
-          args: --release --locked --out dist --compatibility pypi
+          args: --release --out dist --compatibility pypi
           manylinux: "2014"
           sccache: "true"
 
