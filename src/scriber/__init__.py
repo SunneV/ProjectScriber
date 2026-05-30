@@ -1,10 +1,8 @@
-"""
-ProjectScriber: A tool for mapping and compiling project source code.
+"""ProjectScriber 2.0."""
 
-This package provides the core functionality and command-line interface for
-ProjectScriber. The main `Scriber` class can be imported directly for
-programmatic use.
-"""
-from .core import Scriber, ScriberConfig
+from .packer.pack import build_pack, build_and_write_pack
+from .core.models import ScriberPack
 
-__all__ = ["Scriber", "ScriberConfig"]
+__all__ = ["build_pack", "build_and_write_pack", "ScriberPack"]
+
+__version__ = "2.0.0"
