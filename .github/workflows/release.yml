@@ -32,6 +32,8 @@ jobs:
         with:
           command: sdist
           args: --out dist
+        env:
+          RUSTC_WRAPPER: ""
 
       - name: Set up Python
         uses: actions/setup-python@v5
