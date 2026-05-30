@@ -1,0 +1,19 @@
+[package]
+name = "project-scriber-native"
+version = "2.0.0"
+edition = "2021"
+
+[lib]
+name = "_native"
+crate-type = ["cdylib"]
+path = "rust/scriber_native/src/lib.rs"
+
+[dependencies]
+pyo3 = { version = "0.21", features = ["extension-module", "abi3-py310"] }
+ignore = "0.4"
+globset = "0.4"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+memchr = "2.7"
+regex = "1.10"
+

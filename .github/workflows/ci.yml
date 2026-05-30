@@ -1,28 +1,57 @@
-name: Continuous Integration
+name: CI
 
 on:
   push:
-    branches:
-      - develop
+    branches: [main, develop]
+  pull_request:
 
 jobs:
-  run_tests:
-    runs-on: ubuntu-latest
+  test:
+    name: ${{ matrix.os }} / py${{ matrix.python-version }}
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Python 3.10
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.10'
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        env:
+          TAR: ${{ matrix.os == 'windows-latest' && 'C:\Windows\System32\tar.exe' || 'tar' }}
 
       - name: Install uv
-        run: pipx install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          cache-dependency-glob: "pyproject.toml"
 
-      - name: Install dependencies
-        run:  uv pip install -e .[dev] --system
+      - name: Set up Python
+        run: uv python install ${{ matrix.python-version }}
+
+      - name: Sync
+        run: uv sync --all-extras
+
+      - name: Check native import
+        run: uv run python -c "import scriber._native; print('native ok')"
+
+      - name: Rust format check
+        run: cargo fmt --check
+
+      - name: Rust clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Rust tests
+        run: cargo test
 
       - name: Run tests
-        run: pytest
+        run: uv run pytest
+
+      - name: CLI smoke
+        run: uv run scriber . --only-tree --output -

@@ -1,0 +1,48 @@
+[tool.scriber]
+version = "2"
+format = "md"
+output = ".scriber/scriber_pack.md"
+use_gitignore = true
+max_files = 60
+max_tokens = 100000
+min_score = 45
+
+[tool.scriber.code_files]
+patterns = ["**/*.py", "**/*.pyi", "**/*.rs", "**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx"]
+
+[tool.scriber.support_files]
+enabled = true
+patterns = [
+  "pyproject.toml",
+  "README.md",
+  "requirements.txt",
+  "requirements/*.txt",
+  "poetry.lock",
+  "uv.lock",
+  ".env.example",
+  "Dockerfile",
+  "docker-compose.yml",
+  ".github/workflows/*.yml",
+]
+
+[tool.scriber.support_files.content]
+default = "auto"
+full = ["pyproject.toml", "README.md", "requirements.txt", "requirements/*.txt", ".env.example", "Dockerfile", "docker-compose.yml", ".github/workflows/*.yml"]
+tree_only = ["poetry.lock", "uv.lock"]
+
+[tool.scriber.modules]
+enabled = true
+depth = 2
+include_direct_dependencies = true
+include_reverse_dependencies = true
+include_tests = true
+include_same_package = true
+include_parent_entrypoints = true
+include_project_configs = true
+content_min_score = 50
+tree_min_score = 30
+
+[tool.scriber.python]
+source_roots = ["src", "app", "."]
+test_roots = ["tests", "test"]
+entrypoint_patterns = ["main.py", "app.py", "asgi.py", "wsgi.py", "routes.py", "router.py"]
