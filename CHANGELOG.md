@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+
+## [2.0.0] - 2026-05-30
+
+### Added
+- **⚡ Native Rust Acceleration (`scriber._native`)**: Full transition of filesystem scanning, high-performance file reading/writing, and binary classification to a compiled Rust extension built using Maturin and PyO3.
+- **🌳 Fast Parallel Scanner**: Re-engineered directory scanning utilizing the `WalkBuilder` from the `ignore` crate, fully respecting `.gitignore` rules with blazing fast native execution.
+- **🧪 Rigorous Verification & Equivalence Testing**: Comprehensive suite of regression and equivalence tests validating 100% exact matching behavior between Rust and Python scanner modules.
+- **📦 Multi-Platform Binary Wheels**: CI/CD integration using `PyO3/maturin-action` to compile and distribute native wheels across Linux, macOS, and Windows.
+
+
 ## [1.1.2] - 2025-09-30
 
 ### Fixed

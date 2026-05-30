@@ -1,26 +1,83 @@
-name: Publish to PyPI
+name: Release
 
 on:
   push:
     tags:
-      - 'v*' # Triggers on any tag starting with v, like v0.0.3
+      - "v*"
 
 jobs:
-  build_and_publish:
-    runs-on: ubuntu-latest
-    permissions:
-      id-token: write # Required for trusted publishing
-      contents: read  # Required to read the repository content
+  build:
+    name: Build ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
-      - name: Install uv
-        run: pipx install uv
+      - name: Build wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          command: build
+          args: --release --locked --out dist --compatibility pypi
+          manylinux: "2014"
+          sccache: "true"
 
-      - name: Build distributions
-        run: uv build
+      - name: Build sdist
+        if: matrix.os == 'ubuntu-latest'
+        uses: PyO3/maturin-action@v1
+        with:
+          command: sdist
+          args: --out dist
 
-      - name: Publish to PyPI
-        run: uv publish
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Wheel smoke install
+        shell: bash
+        run: |
+          python -m venv test_venv
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            test_venv/Scripts/pip install dist/*.whl
+            test_venv/Scripts/python -c "import scriber._native; print('native ok')"
+            test_venv/Scripts/scriber . --only-tree --output -
+          else
+            test_venv/bin/pip install dist/*.whl
+            test_venv/bin/python -c "import scriber._native; print('native ok')"
+            test_venv/bin/scriber . --only-tree --output -
+          fi
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.os }}
+          path: dist
+
+  publish:
+    name: Publish
+    needs: [build]
+    runs-on: ubuntu-latest
+
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist-artifacts
+          pattern: wheels-*
+          merge-multiple: true
+
+      - name: List artifacts
+        run: ls -la dist-artifacts
+
+      - name: Publish
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist-artifacts
