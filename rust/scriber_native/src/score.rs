@@ -90,6 +90,8 @@ pub struct NativePackOptions {
     pub include_project_configs: bool,
     #[pyo3(get, set)]
     pub depth: usize,
+    #[pyo3(get, set)]
+    pub top_dependencies: usize,
 
     // Support file scanning
     #[pyo3(get, set)]
@@ -136,6 +138,7 @@ impl NativePackOptions {
         include_tests = true,
         include_project_configs = true,
         depth = 2,
+        top_dependencies = 10,
         support_enabled = true,
         entrypoint_patterns = Vec::new(),
         test_roots = Vec::new(),
@@ -172,6 +175,7 @@ impl NativePackOptions {
         include_tests: bool,
         include_project_configs: bool,
         depth: usize,
+        top_dependencies: usize,
         support_enabled: bool,
         entrypoint_patterns: Vec<String>,
         test_roots: Vec<String>,
@@ -207,6 +211,7 @@ impl NativePackOptions {
             include_tests,
             include_project_configs,
             depth,
+            top_dependencies,
             support_enabled,
             entrypoint_patterns,
             test_roots,
@@ -414,6 +419,7 @@ fn walk_weighted_neighbors(
     edges: &[NativeRelationEdge],
     start: &str,
     depth: usize,
+    top_dependencies: usize,
     reverse: bool,
 ) -> HashMap<String, f64> {
     let mut adj: HashMap<String, Vec<(String, &NativeRelationEdge)>> = HashMap::new();
@@ -421,6 +427,19 @@ fn walk_weighted_neighbors(
         let u = if reverse { &edge.target } else { &edge.source };
         let v = if reverse { &edge.source } else { &edge.target };
         adj.entry(u.clone()).or_default().push((v.clone(), edge));
+    }
+
+    if top_dependencies > 0 {
+        for edges_from_u in adj.values_mut() {
+            if edges_from_u.len() > top_dependencies {
+                edges_from_u.sort_by(|a, b| {
+                    let str_a = a.1.weight * a.1.confidence;
+                    let str_b = b.1.weight * b.1.confidence;
+                    str_b.partial_cmp(&str_a).unwrap_or(Ordering::Equal)
+                });
+                edges_from_u.truncate(top_dependencies);
+            }
+        }
     }
 
     let mut max_strength: HashMap<String, f64> = HashMap::new();
@@ -635,9 +654,13 @@ pub fn score_candidates_native(
             for seed_rel in &seed_files {
                 // Direct dependencies
                 if options.include_direct_dependencies {
-                    for (dep, strength) in
-                        walk_weighted_neighbors(&edges, seed_rel, options.depth, false)
-                    {
+                    for (dep, strength) in walk_weighted_neighbors(
+                        &edges,
+                        seed_rel,
+                        options.depth,
+                        options.top_dependencies,
+                        false,
+                    ) {
                         let score = std::cmp::max(
                             options.tree_min_score,
                             (options.direct_dependency_score as f64 * strength) as i32,
@@ -657,9 +680,13 @@ pub fn score_candidates_native(
 
                 // Reverse dependencies
                 if options.include_reverse_dependencies {
-                    for (dep, strength) in
-                        walk_weighted_neighbors(&edges, seed_rel, options.depth, true)
-                    {
+                    for (dep, strength) in walk_weighted_neighbors(
+                        &edges,
+                        seed_rel,
+                        options.depth,
+                        options.top_dependencies,
+                        true,
+                    ) {
                         let score = std::cmp::max(
                             options.tree_min_score,
                             (options.reverse_dependency_score as f64 * strength) as i32,

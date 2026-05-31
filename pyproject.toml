@@ -94,6 +94,7 @@ include_tests = true
 include_same_package = true
 include_parent_entrypoints = true
 include_project_configs = true
+top_dependencies = 10
 content_min_score = 50
 tree_min_score = 30
 

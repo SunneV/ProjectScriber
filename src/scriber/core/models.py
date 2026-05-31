@@ -42,6 +42,7 @@ class ModuleConfig:
     include_same_package: bool = True
     include_parent_entrypoints: bool = True
     include_project_configs: bool = True
+    top_dependencies: int = 10
     content_min_score: int = 50
     tree_min_score: int = 30
     scoring: dict[str, int] = field(default_factory=lambda: dict(DEFAULT_SCORING))

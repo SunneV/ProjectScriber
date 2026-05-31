@@ -204,6 +204,7 @@ include_tests = true
 include_same_package = true
 include_parent_entrypoints = true
 include_project_configs = true
+top_dependencies = 10
 content_min_score = 50
 tree_min_score = 30
 
@@ -326,6 +327,9 @@ def load_config(config_path: Path) -> ScriberConfig:
                     "include_project_configs",
                     config.modules_config.include_project_configs,
                 )
+            ),
+            top_dependencies=int(
+                modules.get("top_dependencies", config.modules_config.top_dependencies)
             ),
             content_min_score=int(
                 modules.get(
@@ -482,6 +486,26 @@ def validate_raw_config(raw_data: dict[str, Any]) -> list[ConfigIssue]:
                 issues.append(
                     ConfigIssue(
                         "error", f"{field} must be an integer. Got: {data[field]}"
+                    )
+                )
+
+    modules = data.get("modules", {})
+    if isinstance(modules, dict):
+        if "top_dependencies" in modules:
+            try:
+                val = int(modules["top_dependencies"])
+                if val < 0:
+                    issues.append(
+                        ConfigIssue(
+                            "error",
+                            f"modules.top_dependencies must be a number >= 0. Got: {val}",
+                        )
+                    )
+            except (ValueError, TypeError):
+                issues.append(
+                    ConfigIssue(
+                        "error",
+                        f"modules.top_dependencies must be an integer. Got: {modules['top_dependencies']}",
                     )
                 )
 

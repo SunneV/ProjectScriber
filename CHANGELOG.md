@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **CLI Introspection**: Added `--explain` flag as an alias. Enhanced `--why` output to show estimated token cost, content mode, and omission reasons for any target file.
 - **Automated README Sync**: Added `scripts/sync_readme.py` tool to automatically sync CLI arguments, profiles documentation, and version tags across the `README.md`.
 - **AI-Native Navigation & Optimization**: Implemented XML anchors for symbols, aggressive test file quarantine, and support file pruning to keep focused mode clean and strictly token-capped.
+- **Dependency Limiting**: Introduced `top_dependencies` (defaulting to 10) in the configuration to limit the width of the graph traversal and pull in only the highest-confidence dependencies per file.
 - **Version Alignment**: Synchronized Python and Rust crate versions. `scriber --version` now reports both Python and native API versions.
 
 ### Fixed

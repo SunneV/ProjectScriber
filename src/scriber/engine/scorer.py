@@ -125,7 +125,11 @@ def _name_related(a: Path, b: Path) -> bool:
 
 
 def _walk_weighted_neighbors(
-    edges: list[RelationEdge], start: Path, depth_limit: int, reverse: bool = False
+    edges: list[RelationEdge],
+    start: Path,
+    depth_limit: int,
+    top_dependencies: int,
+    reverse: bool = False,
 ) -> dict[Path, float]:
     import heapq
 
@@ -134,6 +138,14 @@ def _walk_weighted_neighbors(
         u = edge.target if reverse else edge.source
         v = edge.source if reverse else edge.target
         adj.setdefault(u, []).append((v, edge))
+
+    if top_dependencies > 0:
+        for u, edges_from_u in adj.items():
+            if len(edges_from_u) > top_dependencies:
+                edges_from_u.sort(
+                    key=lambda item: item[1].weight * item[1].confidence, reverse=True
+                )
+                adj[u] = edges_from_u[:top_dependencies]
 
     queue = [(-1.0, 0, start)]
     max_strength: dict[Path, float] = {start: 1.0}
@@ -360,7 +372,7 @@ def score_candidates(
         for seed_rel in seed_files:
             if scoring.include_direct_dependencies:
                 for dep, strength in _walk_weighted_neighbors(
-                    graph.edges, seed_rel, scoring.depth, reverse=False
+                    graph.edges, seed_rel, scoring.depth, scoring.top_dependencies
                 ).items():
                     score = max(
                         scoring.tree_min_score,
@@ -378,7 +390,11 @@ def score_candidates(
 
             if scoring.include_reverse_dependencies:
                 for dep, strength in _walk_weighted_neighbors(
-                    graph.edges, seed_rel, scoring.depth, reverse=True
+                    graph.edges,
+                    seed_rel,
+                    scoring.depth,
+                    scoring.top_dependencies,
+                    reverse=True,
                 ).items():
                     score = max(
                         scoring.tree_min_score,

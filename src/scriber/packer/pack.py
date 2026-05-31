@@ -354,6 +354,7 @@ def _build_graph_and_score(
             include_tests=config.modules_config.include_tests,
             include_project_configs=config.modules_config.include_project_configs,
             depth=config.modules_config.depth,
+            top_dependencies=config.modules_config.top_dependencies,
             support_enabled=config.support,
             entrypoint_patterns=config.python.entrypoint_patterns,
             test_roots=config.python.test_roots,
