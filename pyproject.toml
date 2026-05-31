@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "project-scriber"
-version = "2.0.0"
+version = "2.1.0"
 description = "Scriber 2.0: build intelligent code packs from one or more project paths."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -54,8 +54,8 @@ format = "md"
 output = ".scriber/scriber_pack.md"
 only_tree = false
 use_gitignore = true
-max_files = 60
-max_tokens = 100000
+max_files = 0
+max_tokens = 0
 min_score = 45
 path_style = "project-relative"
 allow_external_paths = false

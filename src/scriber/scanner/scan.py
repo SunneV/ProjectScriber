@@ -6,8 +6,16 @@ from scriber.native import require_native
 
 
 def scan_project(root: Path, config: ScriberConfig) -> dict[Path, FileNode]:
-    files, _ = scan_project_with_native(root, config)
-    return files
+    try:
+        from scriber.native import is_native_available
+        if is_native_available():
+            files, _ = scan_project_with_native(root, config)
+            return files
+    except Exception:
+        pass
+
+    from scriber.scanner.scan_py import scan_project as scan_project_py
+    return scan_project_py(root, config)
 
 
 def scan_project_with_native(root: Path, config: ScriberConfig) -> tuple[dict[Path, FileNode], list]:

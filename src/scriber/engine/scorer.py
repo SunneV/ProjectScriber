@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from scriber.core.matchers import match_pattern
-from scriber.core.models import Candidate, FileNode, ModuleGraph, ScriberConfig, SeedPath
+from scriber.core.models import Candidate, FileNode, ModuleGraph, ScriberConfig, SeedPath, RelationEdge
 
 
 def _score(config: ScriberConfig, key: str) -> int:
@@ -109,6 +109,56 @@ def _name_related(a: Path, b: Path) -> bool:
     if not a_stem or not b_stem:
         return False
     return a_stem in b_stem or b_stem in a_stem
+
+
+def _walk_weighted_neighbors(
+    edges: list[RelationEdge],
+    start: Path,
+    depth_limit: int,
+    reverse: bool = False
+) -> dict[Path, float]:
+    import heapq
+    
+    adj: dict[Path, list[tuple[Path, RelationEdge]]] = {}
+    for edge in edges:
+        u = edge.target if reverse else edge.source
+        v = edge.source if reverse else edge.target
+        adj.setdefault(u, []).append((v, edge))
+        
+    queue = [(-1.0, 0, start)]
+    max_strength: dict[Path, float] = {start: 1.0}
+    best_at_state: dict[tuple[Path, int], float] = {(start, 0): 1.0}
+    
+    while queue:
+        neg_str, depth, u = heapq.heappop(queue)
+        u_str = -neg_str
+        
+        if u_str < best_at_state.get((u, depth), 0.0):
+            continue
+            
+        if depth >= depth_limit:
+            continue
+            
+        for neighbor, edge in adj.get(u, []):
+            if edge.kind in {"import", "reexport"}:
+                edge_str = 1.0 if depth == 0 else 0.88
+            else:
+                edge_str = edge.weight * edge.confidence
+                
+            next_str = u_str * edge_str
+            next_depth = depth + 1
+            
+            if next_str > max_strength.get(neighbor, 0.0):
+                max_strength[neighbor] = next_str
+                
+            if next_str > best_at_state.get((neighbor, next_depth), 0.0):
+                best_at_state[(neighbor, next_depth)] = next_str
+                heapq.heappush(queue, (-next_str, next_depth, neighbor))
+                
+    if start in max_strength:
+        del max_strength[start]
+        
+    return max_strength
 
 
 def _walk_neighbors(edges: dict[Path, set[Path]], start: Path, depth: int) -> dict[Path, int]:
@@ -222,13 +272,13 @@ def score_candidates(
     if config.modules and scoring.enabled:
         for seed_rel in seed_files:
             if scoring.include_direct_dependencies:
-                for dep, distance in _walk_neighbors(graph.imports, seed_rel, scoring.depth).items():
-                    score = max(scoring.tree_min_score, _score(config, "direct_dependency") - ((distance - 1) * 10))
+                for dep, strength in _walk_weighted_neighbors(graph.edges, seed_rel, scoring.depth, reverse=False).items():
+                    score = max(scoring.tree_min_score, int(_score(config, "direct_dependency") * strength))
                     _add(candidates, files, dep, score, "direct_dependency", f"direct dependency of `{seed_rel.as_posix()}`", seed=seed_rel)
 
             if scoring.include_reverse_dependencies:
-                for dep, distance in _walk_neighbors(graph.imported_by, seed_rel, scoring.depth).items():
-                    score = max(scoring.tree_min_score, _score(config, "reverse_dependency") - ((distance - 1) * 10))
+                for dep, strength in _walk_weighted_neighbors(graph.edges, seed_rel, scoring.depth, reverse=True).items():
+                    score = max(scoring.tree_min_score, int(_score(config, "reverse_dependency") * strength))
                     _add(candidates, files, dep, score, "reverse_dependency", f"imports seed `{seed_rel.as_posix()}`", seed=seed_rel)
 
             if scoring.include_same_package:

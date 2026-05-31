@@ -13,6 +13,7 @@ from scriber.rendering.renderer import render_pack
 from scriber.scanner.files import classify_file, is_text_readable, read_text_lossy
 from scriber.tokens import estimate_tokens
 from scriber.scanner.scan import scan_project
+from scriber.core.models import LlmPack
 
 
 def _resolve_input(path_value: str, root: Path, allow_external: bool, path_base: str = "cwd") -> Path:
@@ -151,28 +152,7 @@ def _apply_content_policy(pack: ScriberPack, config) -> None:
     pack.total_tokens = total
 
 
-def build_pack(
-    paths: list[str] | None = None,
-    *,
-    config_path: str | None = None,
-    output: str | None = None,
-    output_format: str | None = None,
-    only_tree: bool | None = None,
-    modules: bool | None = None,
-    support: bool | None = None,
-    max_files: int | None = None,
-    max_tokens: int | None = None,
-    min_score: int | None = None,
-    support_content: str | None = None,
-    progress_callback: Callable[[str], None] | None = None,
-    project: bool | None = None,
-    path_base: str = "project",
-) -> ScriberPack:
-    from time import perf_counter
-    timings = {}
-    
-    t_start = perf_counter()
-    paths = paths or ["."]
+def _load_and_apply_config(paths, config_path, output, output_format, only_tree, modules, support, max_files, max_tokens, min_score, support_content):
     resolved_config = resolve_config_path(paths, config_path)
     root = project_root_from_config(resolved_config)
     config = load_config(resolved_config)
@@ -188,11 +168,11 @@ def build_pack(
         min_score=min_score,
         support_content=support_content,
     )
-    timings["config_load"] = perf_counter() - t_start
+    return resolved_config, root, config
 
-    t_scan = perf_counter()
+def _scan_files(paths, root, config, path_base, progress_callback):
     if progress_callback: progress_callback("Skanowanie plikow...")
-    from scriber.native import require_native, is_native_available
+    from scriber.native import is_native_available
     native_files = None
     if is_native_available():
         from scriber.scanner.scan import scan_project_with_native
@@ -201,21 +181,23 @@ def build_pack(
         files = scan_project(root, config)
     resolved_inputs = [_resolve_input(item, root, config.allow_external_paths, path_base) for item in paths]
     seeds = [_expand_seed(path, root, files, config) for path in resolved_inputs]
-    timings["scan"] = perf_counter() - t_scan
-
-    # Detect mode
+    
     is_project_snapshot = False
-    if project:
-        is_project_snapshot = True
-    else:
-        for path in resolved_inputs:
-            if path == root:
-                is_project_snapshot = True
-                break
-    mode = "project_snapshot" if is_project_snapshot else "focused"
+    for path in resolved_inputs:
+        if path == root:
+            is_project_snapshot = True
+            break
+    
+    return files, native_files, seeds, is_project_snapshot
 
-    # Use native code pack builder if available
+
+def _build_graph_and_score(mode, files, seeds, native_files, root, config, progress_callback):
+    from time import perf_counter
+    timings = {}
+    stats = {}
+    from scriber.native import is_native_available
     if is_native_available():
+        from scriber.native import require_native
         native = require_native()
         
         t_graph = perf_counter()
@@ -223,20 +205,45 @@ def build_pack(
         
         assert native_files is not None
         
-        edges = native.build_import_graph(
+        edges = native.build_relation_graph(
             str(root),
             native_files,
             config.python.source_roots,
             config.python.module_init_files
         )
         
-        from scriber.core.models import ModuleGraph
+        from scriber.graph.analyzers import generate_cheap_relations
+        edges.extend(generate_cheap_relations(files, native.NativeRelationEdge, is_native=True))
+        
+        from scriber.cache import ScriberCache
+        cache = ScriberCache(config, root)
+
+        from scriber.core.models import ModuleGraph, RelationEdge
         graph = ModuleGraph()
         for edge in edges:
-            from_path = Path(getattr(edge, "from"))
-            to_path = Path(edge.to)
-            graph.imports.setdefault(from_path, set()).add(to_path)
-            graph.imported_by.setdefault(to_path, set()).add(from_path)
+            from_path = Path(getattr(edge, "source"))
+            to_path = Path(edge.target)
+            py_edge = RelationEdge(
+                source=from_path,
+                target=to_path,
+                kind=edge.kind,
+                weight=edge.weight,
+                confidence=edge.confidence,
+                evidence=edge.evidence,
+                line=edge.line,
+                analyzer=edge.analyzer
+            )
+            graph.add_edge(py_edge)
+            if py_edge.kind in {"import", "reexport"}:
+                cache.add_import_edge(from_path, to_path)
+            
+        cache.save(set(files.keys()))
+        
+        stats["graph_edges_built"] = len(edges)
+        stats["graph_source"] = "native"
+        stats["graph_cache_reads"] = cache.reads
+        stats["graph_cache_hits"] = cache.hits
+        stats["graph_cache_writes"] = cache.writes
             
         timings["graph_build"] = perf_counter() - t_graph
         
@@ -300,13 +307,142 @@ def build_pack(
     else:
         t_graph = perf_counter()
         if progress_callback: progress_callback("Budowanie grafu modulow...")
-        graph = build_graph(files, config)
+        from scriber.cache import ScriberCache
+        cache = ScriberCache(config, root)
+        from scriber.graph.builder import build_graph
+        graph = build_graph(files, config, cache)
+        
+        from scriber.graph.analyzers import generate_cheap_relations
+        from scriber.core.models import RelationEdge
+        cheap_edges = generate_cheap_relations(files, RelationEdge, is_native=False)
+        for edge in cheap_edges:
+            graph.add_edge(edge)
+            
+        stats["graph_edges_built"] = len(graph.edges)
+        stats["graph_source"] = "python"
+        stats["graph_cache_reads"] = cache.reads
+        stats["graph_cache_hits"] = cache.hits
+        stats["graph_cache_writes"] = cache.writes
+        
         timings["graph_build"] = perf_counter() - t_graph
         
         t_score = perf_counter()
         if progress_callback: progress_callback("Ocenianie zaleznosci...")
         candidates = score_candidates(files=files, seeds=seeds, graph=graph, config=config, mode=mode)
         timings["scoring"] = perf_counter() - t_score
+
+    return candidates, graph, timings, stats
+
+def build_pack(
+    paths: list[str] | None = None,
+    *,
+    config_path: str | None = None,
+    profile: str | None = None,
+    output: str | None = None,
+    output_format: str | None = None,
+    only_tree: bool | None = None,
+    modules: bool | None = None,
+    support: bool | None = None,
+    max_files: int | None = None,
+    max_tokens: int | None = None,
+    min_score: int | None = None,
+    support_content: str | None = None,
+    progress_callback: Callable[[str], None] | None = None,
+    project: bool | None = None,
+    path_base: str = "project",
+) -> ScriberPack | LlmPack:
+    from time import perf_counter
+    
+    t_start = perf_counter()
+    paths = paths or ["."]
+    resolved_config, root, config = _load_and_apply_config(
+        paths, config_path, output, output_format, only_tree, modules, support, max_files, max_tokens, min_score, support_content
+    )
+    t_config_load = perf_counter() - t_start
+
+    t_scan = perf_counter()
+    files, native_files, seeds, is_project_snapshot = _scan_files(paths, root, config, path_base, progress_callback)
+    t_scan_time = perf_counter() - t_scan
+
+    mode = "project_snapshot" if (project or is_project_snapshot) else "focused"
+
+    if profile == "full":
+        mode = "project_snapshot"
+    elif profile == "focused-gpt":
+        mode = "focused"
+
+    candidates, graph, sub_timings, stats = _build_graph_and_score(
+        mode, files, seeds, native_files, root, config, progress_callback
+    )
+
+    if profile in {"gpt", "focused-gpt", "full"}:
+        from scriber.engine.ranker import rank_context
+        from scriber.budget.allocator import allocate_budget, BudgetPolicy
+        from time import perf_counter
+        
+        t_rank = perf_counter()
+        if progress_callback: progress_callback("Rankowanie kontekstu...")
+        seed_paths = [seed for p in seeds for seed in p.expanded_files]
+        new_candidates = rank_context(files, graph, seed_paths, config, mode)
+        sub_timings["rank_context"] = perf_counter() - t_rank
+        
+        t_budget = perf_counter()
+        if progress_callback: progress_callback("Alokacja budzetu...")
+        policy = BudgetPolicy(
+            target_tokens=config.max_tokens if config.max_tokens > 0 else 30000,
+            hard_limit_tokens=config.max_tokens if config.max_tokens > 0 else 100000,
+            mode=mode
+        )
+        if mode == "focused":
+            explicit_seeds = {seed for p in seeds for seed in p.expanded_files}
+        else:
+            explicit_seeds = {seed for p in seeds if not p.is_dir for seed in p.expanded_files}
+            
+        items = allocate_budget(new_candidates, policy, explicit_seeds)
+        sub_timings["budget_allocation"] = perf_counter() - t_budget
+        
+        t_content = perf_counter()
+        if progress_callback: progress_callback("Czytanie i outline...")
+        from scriber.outline import generate_outline
+        
+        actual_tokens = 0
+        for item in items:
+            if item.content_mode == "full":
+                try:
+                    item.content = item.file.read_text()
+                    actual_tokens += item.token_estimate
+                except Exception:
+                    item.content_mode = "tree"
+            elif item.content_mode in ("outline", "excerpt"):
+                try:
+                    content = item.file.read_text()
+                    item.outline = generate_outline(item.file, content)
+                    actual_tokens += item.outline.token_estimate
+                except Exception:
+                    item.content_mode = "tree"
+                    
+        sub_timings["content_read"] = perf_counter() - t_content
+        
+        stats["input_paths"] = paths
+        pack = LlmPack(
+            project_root=root,
+            config_path=resolved_config,
+            profile=profile,
+            mode=mode,
+            goal=None,
+            budget_target=policy.target_tokens,
+            budget_actual=actual_tokens,
+            items=items,
+            graph=graph,
+            stats=stats,
+            warnings=[]
+        )
+        pack.timings = {
+            "config_load": t_config_load,
+            "scan": t_scan_time,
+            **sub_timings
+        }
+        return pack
 
     pack = ScriberPack(
         project_root=root,
@@ -317,18 +453,24 @@ def build_pack(
         only_tree=config.only_tree,
         output_format=config.format,
         mode=mode,
+        stats=stats,
     )
     
     t_content = perf_counter()
     if progress_callback: progress_callback("Aplikowanie regul zawartosci...")
     _apply_content_policy(pack, config)
-    timings["content_read"] = perf_counter() - t_content
+    t_content_time = perf_counter() - t_content
     
-    pack.timings = timings
+    pack.timings = {
+        "config_load": t_config_load,
+        "scan": t_scan_time,
+        "content_read": t_content_time,
+        **sub_timings
+    }
     return pack
 
 
-def build_and_write_pack(paths: list[str] | None = None, **kwargs) -> tuple[Path | None, ScriberPack]:
+def build_and_write_pack(paths: list[str] | None = None, **kwargs) -> tuple[Path | None, ScriberPack | LlmPack]:
     explain_selection = kwargs.pop("explain_selection", False)
     pack = build_pack(paths, **kwargs)
     config_path = resolve_config_path(paths or ["."], kwargs.get("config_path"))
@@ -347,7 +489,16 @@ def build_and_write_pack(paths: list[str] | None = None, **kwargs) -> tuple[Path
     )
     progress = kwargs.get("progress_callback")
     if progress: progress("Renderowanie Markdown...")
-    rendered = render_pack(pack, explain_selection=explain_selection)
+    
+    if isinstance(pack, LlmPack):
+        from scriber.renderer.llm_report import render_llm_report
+        import io
+        buf = io.StringIO()
+        render_llm_report(pack, buf)
+        rendered = buf.getvalue()
+    else:
+        rendered = render_pack(pack, explain_selection=explain_selection)
+        
     output = config.output
     if str(output) == "-":
         import sys
@@ -360,6 +511,13 @@ def build_and_write_pack(paths: list[str] | None = None, **kwargs) -> tuple[Path
     if not output.is_absolute():
         output = pack.project_root / output
     output.parent.mkdir(parents=True, exist_ok=True)
-    from scriber.native import require_native
-    require_native().write_text(str(output), rendered)
+    try:
+        from scriber.native import is_native_available, require_native
+        if is_native_available():
+            require_native().write_text(str(output), rendered)
+        else:
+            output.write_text(rendered, encoding="utf-8")
+    except Exception:
+        output.write_text(rendered, encoding="utf-8")
+        
     return output, pack

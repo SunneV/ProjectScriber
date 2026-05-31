@@ -76,6 +76,7 @@ fn build_info() -> PyResult<String> {
 fn _native(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<scan::NativeFileInfo>()?;
     m.add_class::<import::NativeImportEdge>()?;
+    m.add_class::<import::NativeRelationEdge>()?;
     m.add_class::<score::NativeCandidate>()?;
     m.add_class::<score::NativePackOptions>()?;
     m.add_function(wrap_pyfunction!(read_text, m)?)?;
@@ -84,6 +85,7 @@ fn _native(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(read_many_text, m)?)?;
     m.add_function(wrap_pyfunction!(scan_project, m)?)?;
     m.add_function(wrap_pyfunction!(import::build_import_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(import::build_relation_graph, m)?)?;
     m.add_function(wrap_pyfunction!(score::score_candidates_native, m)?)?;
     m.add_function(wrap_pyfunction!(render::render_tree, m)?)?;
     m.add_function(wrap_pyfunction!(native_api_version, m)?)?;
