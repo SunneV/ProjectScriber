@@ -42,7 +42,11 @@ def is_probably_binary(path: Path) -> bool:
     try:
         return require_native().is_probably_binary(str(path))
     except Exception:
-        return True
+        try:
+            chunk = path.read_bytes()[:4096]
+            return b"\0" in chunk
+        except OSError:
+            return True
 
 
 def language_for(path: Path) -> str:

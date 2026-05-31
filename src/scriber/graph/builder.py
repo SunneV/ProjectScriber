@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from scriber.core.models import FileNode, ModuleGraph, ScriberConfig
+from scriber.core.models import FileNode, ScriberConfig
+from scriber.graph.model import ModuleGraph, RelationEdge
 from scriber.graph.languages.python import build_module_map, parse_python_imports, resolve_import_record
 from scriber.scanner.files import read_text_lossy
 
 
-def build_graph(files: dict[Path, FileNode], config: ScriberConfig) -> ModuleGraph:
+def build_graph(files: dict[Path, FileNode], config: ScriberConfig, cache: ScriberCache | None = None) -> ModuleGraph:
     graph = ModuleGraph()
     if not files:
         return graph
@@ -24,8 +25,9 @@ def build_graph(files: dict[Path, FileNode], config: ScriberConfig) -> ModuleGra
     sample = next(iter(files.values()))
     root = Path(sample.absolute.as_posix()[:len(sample.absolute.as_posix()) - len(sample.relative.as_posix())]).resolve()
 
-    from scriber.cache import ScriberCache
-    cache = ScriberCache(config, root)
+    if cache is None:
+        from scriber.cache import ScriberCache
+        cache = ScriberCache(config, root)
 
     module_to_path, path_to_module = build_module_map(files, config.python)
 
@@ -124,9 +126,17 @@ def build_graph(files: dict[Path, FileNode], config: ScriberConfig) -> ModuleGra
                     resolved_set.add(target)
 
 
+        from scriber.core.models import RelationEdge
+
         for target in resolved_set:
-            graph.imports.setdefault(rel, set()).add(target)
-            graph.imported_by.setdefault(target, set()).add(rel)
+            graph.add_edge(RelationEdge(
+                source=rel,
+                target=target,
+                kind="import",
+                weight=1.0,
+                confidence=0.98,
+                analyzer=f"imports:{file.language}",
+            ))
 
         cache.set_imports(rel, resolved_set)
 

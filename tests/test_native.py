@@ -193,7 +193,7 @@ def test_native_graph_matches_python_graph_mixed_project(tmp_path: Path) -> None
         config.support_content.default,
         config.support
     )
-    edges = native.build_import_graph(
+    edges = native.build_relation_graph(
         str(tmp_path),
         native_files,
         config.python.source_roots,
@@ -202,7 +202,8 @@ def test_native_graph_matches_python_graph_mixed_project(tmp_path: Path) -> None
 
     rs_imports = {}
     for edge in edges:
-        rs_imports.setdefault(Path(getattr(edge, "from")), set()).add(Path(edge.to))
+        if edge.kind == "import" or edge.kind == "mod" or edge.kind == "use" or edge.kind == "include":
+            rs_imports.setdefault(Path(getattr(edge, "source")), set()).add(Path(edge.target))
     
     for path, targets in py_graph.imports.items():
         file = python_files[path]
@@ -242,7 +243,7 @@ def test_native_scoring_matches_python_for_focused_pack(tmp_path: Path) -> None:
         config.support_content.default,
         config.support
     )
-    edges = native.build_import_graph(
+    edges = native.build_relation_graph(
         str(tmp_path),
         native_files,
         config.python.source_roots,
@@ -397,16 +398,17 @@ from .c import D
         config.support_content.default,
         config.support
     )
-    edges = native.build_import_graph(
+    edges = native.build_relation_graph(
         str(tmp_path),
         native_files,
         config.python.source_roots,
         config.python.module_init_files
     )
 
-    imports = {Path(getattr(edge, "from")): set() for edge in edges}
+    imports = {Path(getattr(edge, "source")): set() for edge in edges}
     for edge in edges:
-        imports[Path(getattr(edge, "from"))].add(Path(edge.to))
+        if edge.kind == "import":
+            imports[Path(getattr(edge, "source"))].add(Path(edge.target))
         
     main_path = Path("src/main.py")
     assert main_path in imports

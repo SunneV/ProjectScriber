@@ -37,12 +37,17 @@ class ScriberCache:
         self.enabled = config.cache.enabled
         self.cache_dir = project_root / config.cache.dir
         self.files_cache_path = self.cache_dir / "files.json"
-        self.graph_cache_path = self.cache_dir / "import_graph.json"
+        self.imports_cache_path = self.cache_dir / "imports_v2.json"
+        self.relations_cache_path = self.cache_dir / "relations_v1.jsonl"
         self.config_hash = get_config_hash(config)
         self.python_version = f"{sys.version_info.major}.{sys.version_info.minor}"
         
+        self.reads = 0
+        self.hits = 0
+        self.writes = 0
+        
         self.files_data: dict[str, dict[str, Any]] = {}
-        self.graph_data: dict[str, list[str]] = {}
+        self.imports_data: dict[str, dict[str, Any]] = {}
         self._load()
 
     def _load(self) -> None:
@@ -53,13 +58,14 @@ class ScriberCache:
             if self.files_cache_path.exists():
                 with self.files_cache_path.open("r", encoding="utf-8") as f:
                     self.files_data = json.load(f)
-            if self.graph_cache_path.exists():
-                with self.graph_cache_path.open("r", encoding="utf-8") as f:
-                    self.graph_data = json.load(f)
+            if self.imports_cache_path.exists():
+                with self.imports_cache_path.open("r", encoding="utf-8") as f:
+                    self.imports_data = json.load(f)
+            # relations_v1.jsonl will be append-only or rewritten on save, we don't load it entirely into memory for now
         except Exception:
             # Silently fallback to empty cache on read errors
             self.files_data = {}
-            self.graph_data = {}
+            self.imports_data = {}
 
     def get_file(self, rel_path: Path, mtime_ns: int, size: int) -> dict[str, Any] | None:
         if not self.enabled:
@@ -92,17 +98,57 @@ class ScriberCache:
     def get_imports(self, rel_path: Path) -> set[Path] | None:
         if not self.enabled:
             return None
+        self.reads += 1
         key = rel_path.as_posix()
-        imports = self.graph_data.get(key)
+        imports = self.imports_data.get(key)
         if imports is not None:
-            return {Path(p) for p in imports}
+            self.hits += 1
+            return {Path(p) for p in imports.get("targets", [])}
         return None
 
     def set_imports(self, rel_path: Path, imports: set[Path]) -> None:
         if not self.enabled:
             return
+        self.writes += 1
         key = rel_path.as_posix()
-        self.graph_data[key] = [p.as_posix() for p in sorted(imports)]
+        try:
+            stat = (self.cache_dir.parent.parent / rel_path).stat()
+            mtime_ns = stat.st_mtime_ns
+            size = stat.st_size
+        except OSError:
+            mtime_ns = 0
+            size = 0
+        self.imports_data[key] = {
+            "mtime_ns": mtime_ns,
+            "size": size,
+            "config_hash": self.config_hash,
+            "targets": [p.as_posix() for p in sorted(imports)]
+        }
+
+    def add_import_edge(self, source: Path, target: Path) -> None:
+        if not self.enabled:
+            return
+        self.writes += 1
+        key = source.as_posix()
+        target_str = target.as_posix()
+        if key not in self.imports_data:
+            try:
+                stat = (self.cache_dir.parent.parent / source).stat()
+                mtime_ns = stat.st_mtime_ns
+                size = stat.st_size
+            except OSError:
+                mtime_ns = 0
+                size = 0
+            self.imports_data[key] = {
+                "mtime_ns": mtime_ns,
+                "size": size,
+                "config_hash": self.config_hash,
+                "targets": [target_str]
+            }
+        else:
+            if target_str not in self.imports_data[key].get("targets", []):
+                self.imports_data[key].setdefault("targets", []).append(target_str)
+                self.imports_data[key]["targets"].sort()
 
     def save(self, active_files: set[Path] | None = None) -> None:
         if not self.enabled:
@@ -116,7 +162,7 @@ class ScriberCache:
             if active_files is not None:
                 active_keys = {p.as_posix() for p in active_files}
                 self.files_data = {k: v for k, v in self.files_data.items() if k in active_keys}
-                self.graph_data = {k: v for k, v in self.graph_data.items() if k in active_keys}
+                self.imports_data = {k: v for k, v in self.imports_data.items() if k in active_keys}
 
             # 2. Enforce absolute limit of max 1000 entries to prevent infinite growth
             if len(self.files_data) > 1000:
@@ -125,11 +171,11 @@ class ScriberCache:
                 to_remove = sorted_keys[:len(sorted_keys) - 1000]
                 for k in to_remove:
                     self.files_data.pop(k, None)
-                    self.graph_data.pop(k, None)
+                    self.imports_data.pop(k, None)
 
             with self.files_cache_path.open("w", encoding="utf-8") as f:
                 json.dump(self.files_data, f, indent=2)
-            with self.graph_cache_path.open("w", encoding="utf-8") as f:
-                json.dump(self.graph_data, f, indent=2)
+            with self.imports_cache_path.open("w", encoding="utf-8") as f:
+                json.dump(self.imports_data, f, indent=2)
         except Exception:
             pass  # Fail silently on write errors to not interrupt execution

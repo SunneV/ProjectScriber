@@ -5,6 +5,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [2.1.0] - 2026-05-31
+
+### Added
+- **🎯 AI-Native Navigation (P1)**: Implemented line-numbered code fences and symbol-level XML anchors (`<anchor id="...">`) for classes and functions in full mode, allowing AI to navigate and apply Search & Replace diffs flawlessly.
+- **🚀 Ultra-Focused Mode Optimization**: Focused mode (`scriber <path>`) now acts as a precise surgical tool, cutting out unnecessary contextual noise.
+- **🛡️ Support Files Pruning**: Support files (`pyproject.toml`, `README.md`, Dockerfiles) are no longer granted automatic `full` mode immunity when running focused scans. They now decay to tree mode unless explicitly targeted.
+- **🧪 Test File Quarantine**: Test modules are heavily penalized in focused mode, dropping out of full/excerpt context to keep the generated pack laser-focused on actual implementation logic.
+
+### Fixed
+- **🐛 Excerpt Fallback Bug**: Fixed a critical bug where `excerpt` files failed to render and completely dropped their token estimates, resulting in `_Excerpt unavailable_` placeholders. They now correctly fall back to outline AST structures and compute tokens accurately.
+- **⚖️ Graph Token Hard-Capping**: Re-engineered token budgeting with rigid distance-based hard caps in `ranker.py` (Max scores: 100/79/74/44 for Dist 0/1/2/3+ respectively). Focused mode is now reliably ~45% of the full project token size, completely eliminating distant `full` mode leaks.
+
 ## [2.0.0] - 2026-05-30
 
 ### Added

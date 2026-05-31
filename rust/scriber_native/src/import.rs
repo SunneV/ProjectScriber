@@ -620,3 +620,77 @@ pub fn build_import_graph(
 
     Ok(edges)
 }
+
+#[pyclass]
+#[derive(Clone, Debug)]
+pub struct NativeRelationEdge {
+    #[pyo3(get)]
+    pub source: String,
+    #[pyo3(get)]
+    pub target: String,
+    #[pyo3(get)]
+    pub kind: String,
+    #[pyo3(get)]
+    pub weight: f64,
+    #[pyo3(get)]
+    pub confidence: f64,
+    #[pyo3(get)]
+    pub evidence: Option<String>,
+    #[pyo3(get)]
+    pub line: Option<usize>,
+    #[pyo3(get)]
+    pub analyzer: String,
+}
+
+#[pymethods]
+impl NativeRelationEdge {
+    #[new]
+    #[pyo3(signature = (source, target, kind, weight, confidence, evidence, line, analyzer))]
+    fn new(
+        source: String,
+        target: String,
+        kind: String,
+        weight: f64,
+        confidence: f64,
+        evidence: Option<String>,
+        line: Option<usize>,
+        analyzer: String,
+    ) -> Self {
+        NativeRelationEdge {
+            source,
+            target,
+            kind,
+            weight,
+            confidence,
+            evidence,
+            line,
+            analyzer,
+        }
+    }
+}
+
+#[pyfunction]
+pub fn build_relation_graph(
+    root: &str,
+    files: Vec<NativeFileInfo>,
+    python_source_roots: Vec<String>,
+    python_module_init_files: Vec<String>,
+) -> PyResult<Vec<NativeRelationEdge>> {
+    let import_edges = build_import_graph(root, files, python_source_roots, python_module_init_files)?;
+    
+    let mut relation_edges = Vec::with_capacity(import_edges.len());
+    for edge in import_edges {
+        relation_edges.push(NativeRelationEdge {
+            source: edge.from,
+            target: edge.to,
+            kind: "import".to_string(), // we map everything to "import" for now to match python
+            weight: 1.0,
+            confidence: 0.98,
+            evidence: None,
+            line: None,
+            analyzer: "imports:native".to_string(),
+        });
+    }
+    
+    Ok(relation_edges)
+}

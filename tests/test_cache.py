@@ -35,7 +35,7 @@ def test_cache_functionality(tmp_path: Path) -> None:
     
     # Check that cache files were created
     assert (tmp_path / ".scriber/cache/files.json").exists()
-    assert (tmp_path / ".scriber/cache/import_graph.json").exists()
+    assert (tmp_path / ".scriber/cache/imports_v2.json").exists()
     
     # Reload cache and check if retrieved properly
     new_cache = ScriberCache(config, tmp_path)
