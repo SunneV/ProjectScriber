@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from scriber.core.matchers import match_pattern, matches_any
+from scriber.core.matchers import matches_any
 from scriber.core.models import ContentPolicy, FileKind, FileNode, ScriberConfig
 
 LANGUAGE_BY_SUFFIX = {
@@ -39,10 +39,15 @@ LANGUAGE_BY_SUFFIX = {
 
 def is_probably_binary(path: Path) -> bool:
     from scriber.native import require_native
+
     try:
         return require_native().is_probably_binary(str(path))
     except Exception:
-        return True
+        try:
+            chunk = path.read_bytes()[:4096]
+            return b"\0" in chunk
+        except OSError:
+            return True
 
 
 def language_for(path: Path) -> str:
@@ -54,19 +59,63 @@ def language_for(path: Path) -> str:
 def support_category(rel: Path) -> str:
     s = rel.as_posix()
     name = rel.name
-    if name == "pyproject.toml" or name.endswith(".toml") or name in {"setup.py", "setup.cfg", "tox.ini", "pytest.ini", "mypy.ini", "ruff.toml", ".ruff.toml"}:
+    if (
+        name == "pyproject.toml"
+        or name.endswith(".toml")
+        or name
+        in {
+            "setup.py",
+            "setup.cfg",
+            "tox.ini",
+            "pytest.ini",
+            "mypy.ini",
+            "ruff.toml",
+            ".ruff.toml",
+        }
+    ):
         return "project config"
-    if name.endswith(".lock") or name in {"requirements.txt", "poetry.lock", "uv.lock", "Pipfile", "Pipfile.lock", "package.json", "package-lock.json", "pnpm-lock.yaml", "yarn.lock", "Cargo.toml", "Cargo.lock", "go.mod", "go.sum"} or s.startswith("requirements/"):
+    if (
+        name.endswith(".lock")
+        or name
+        in {
+            "requirements.txt",
+            "poetry.lock",
+            "uv.lock",
+            "Pipfile",
+            "Pipfile.lock",
+            "package.json",
+            "package-lock.json",
+            "pnpm-lock.yaml",
+            "yarn.lock",
+            "Cargo.toml",
+            "Cargo.lock",
+            "go.mod",
+            "go.sum",
+        }
+        or s.startswith("requirements/")
+    ):
         return "dependency file"
-    if name.startswith("README") or name in {"CHANGELOG.md", "CONTRIBUTING.md"} or s.startswith("docs/"):
+    if (
+        name.startswith("README")
+        or name in {"CHANGELOG.md", "CONTRIBUTING.md"}
+        or s.startswith("docs/")
+    ):
         return "documentation"
-    if name.startswith("Dockerfile") or name.startswith("docker-compose") or name.startswith("compose"):
+    if (
+        name.startswith("Dockerfile")
+        or name.startswith("docker-compose")
+        or name.startswith("compose")
+    ):
         return "runtime support"
     if s.startswith(".github/workflows/") or name == ".gitlab-ci.yml":
         return "ci support"
     if name.startswith(".env") or s.startswith("config/") or s.startswith("settings/"):
         return "runtime config"
-    if name in {".pre-commit-config.yaml", "tsconfig.json"} or name.startswith("vite.config") or name.startswith("webpack.config"):
+    if (
+        name in {".pre-commit-config.yaml", "tsconfig.json"}
+        or name.startswith("vite.config")
+        or name.startswith("webpack.config")
+    ):
         return "tooling config"
     return "support file"
 
@@ -87,7 +136,6 @@ def classify_file(path: Path, root: Path, config: ScriberConfig) -> FileNode | N
     if matches_any(rel_s, config.hard_ignore_patterns):
         return None
 
-    binary = is_probably_binary(path)
     kind: FileKind = "other"
     category = None
     policy: ContentPolicy = "auto"
@@ -100,6 +148,8 @@ def classify_file(path: Path, root: Path, config: ScriberConfig) -> FileNode | N
         policy = support_content_policy(rel, config)
     else:
         return None
+
+    binary = is_probably_binary(path)
 
     try:
         size = path.stat().st_size
@@ -135,8 +185,11 @@ def is_text_readable(path: Path) -> bool:
 
 
 def read_text_lossy(path: Path) -> str:
-    from scriber.native import require_native
-    return require_native().read_text(str(path))
+    try:
+        from scriber.native import is_native_available, require_native
 
-
-
+        if is_native_available():
+            return require_native().read_text(str(path))
+    except Exception:
+        pass
+    return path.read_text(encoding="utf-8", errors="replace")

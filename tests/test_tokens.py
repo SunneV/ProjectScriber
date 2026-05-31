@@ -21,11 +21,14 @@ def test_token_estimation_custom_config() -> None:
 
 def test_token_estimation_parsing_from_config(tmp_path: Path) -> None:
     config_file = tmp_path / "pyproject.toml"
-    config_file.write_text("""
+    config_file.write_text(
+        """
 [tool.scriber.tokens]
 estimator = "chars"
 chars_per_token = 5
-""".strip(), encoding="utf-8")
+""".strip(),
+        encoding="utf-8",
+    )
 
     config = load_config(config_file)
     assert config.tokens.estimator == "chars"

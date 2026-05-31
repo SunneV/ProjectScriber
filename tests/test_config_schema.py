@@ -6,7 +6,8 @@ from scriber.core.config import load_config
 
 def test_config_schema_parsing(tmp_path: Path) -> None:
     config_file = tmp_path / "pyproject.toml"
-    config_file.write_text("""
+    config_file.write_text(
+        """
 [tool.scriber]
 format = "txt"
 max_tokens = 50000
@@ -33,30 +34,32 @@ tree_only = ["Dockerfile"]
 
 [tool.scriber.hard_ignore]
 patterns = [".git/**", "node_modules/**"]
-""".strip(), encoding="utf-8")
+""".strip(),
+        encoding="utf-8",
+    )
 
     config = load_config(config_file)
-    
+
     assert config.format == "txt"
     assert config.max_tokens == 50000
     assert config.max_files == 30
     assert config.only_tree is True
     assert config.allow_external_paths is True
-    
+
     assert config.modules is False
     assert config.modules_config.enabled is False
     assert config.modules_config.content_min_score == 40
-    
+
     assert config.code_patterns == ["**/*.py", "**/*.rs"]
-    
+
     assert config.support is True
     assert config.support_patterns == ["pyproject.toml", "Dockerfile"]
-    
+
     assert config.support_content.default == "tree_only"
     assert config.support_content.auto_max_bytes == 20000
     assert config.support_content.full == ["pyproject.toml"]
     assert config.support_content.tree_only == ["Dockerfile"]
-    
+
     assert config.hard_ignore_patterns == [".git/**", "node_modules/**"]
 
 

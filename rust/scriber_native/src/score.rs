@@ -1,4 +1,4 @@
-use crate::import::NativeImportEdge;
+use crate::import::NativeRelationEdge;
 use crate::scan::NativeFileInfo;
 use pyo3::prelude::*;
 use std::collections::{HashMap, HashSet};
@@ -64,6 +64,14 @@ pub struct NativePackOptions {
     pub documentation_score: i32,
     #[pyo3(get, set)]
     pub shared_dependency_bonus: i32,
+    #[pyo3(get, set)]
+    pub entrypoint_file_score: i32,
+    #[pyo3(get, set)]
+    pub code_file_score: i32,
+    #[pyo3(get, set)]
+    pub test_file_score: i32,
+    #[pyo3(get, set)]
+    pub other_file_score: i32,
 
     // Module flags
     #[pyo3(get, set)]
@@ -82,6 +90,8 @@ pub struct NativePackOptions {
     pub include_project_configs: bool,
     #[pyo3(get, set)]
     pub depth: usize,
+    #[pyo3(get, set)]
+    pub top_dependencies: usize,
 
     // Support file scanning
     #[pyo3(get, set)]
@@ -116,6 +126,10 @@ impl NativePackOptions {
         runtime_support_score = 50,
         documentation_score = 45,
         shared_dependency_bonus = 10,
+        entrypoint_file_score = 90,
+        code_file_score = 80,
+        test_file_score = 60,
+        other_file_score = 40,
         modules_enabled = true,
         include_direct_dependencies = true,
         include_reverse_dependencies = true,
@@ -124,6 +138,7 @@ impl NativePackOptions {
         include_tests = true,
         include_project_configs = true,
         depth = 2,
+        top_dependencies = 10,
         support_enabled = true,
         entrypoint_patterns = Vec::new(),
         test_roots = Vec::new(),
@@ -148,6 +163,10 @@ impl NativePackOptions {
         runtime_support_score: i32,
         documentation_score: i32,
         shared_dependency_bonus: i32,
+        entrypoint_file_score: i32,
+        code_file_score: i32,
+        test_file_score: i32,
+        other_file_score: i32,
         modules_enabled: bool,
         include_direct_dependencies: bool,
         include_reverse_dependencies: bool,
@@ -156,6 +175,7 @@ impl NativePackOptions {
         include_tests: bool,
         include_project_configs: bool,
         depth: usize,
+        top_dependencies: usize,
         support_enabled: bool,
         entrypoint_patterns: Vec<String>,
         test_roots: Vec<String>,
@@ -179,6 +199,10 @@ impl NativePackOptions {
             runtime_support_score,
             documentation_score,
             shared_dependency_bonus,
+            entrypoint_file_score,
+            code_file_score,
+            test_file_score,
+            other_file_score,
             modules_enabled,
             include_direct_dependencies,
             include_reverse_dependencies,
@@ -187,6 +211,7 @@ impl NativePackOptions {
             include_tests,
             include_project_configs,
             depth,
+            top_dependencies,
             support_enabled,
             entrypoint_patterns,
             test_roots,
@@ -311,9 +336,15 @@ fn is_test_file(rel: &str, test_roots: &[String]) -> bool {
         .unwrap_or(std::ffi::OsStr::new(""))
         .to_string_lossy()
         .to_lowercase();
-    for part in p.components().filter_map(|c| c.as_os_str().to_str()) {
-        if test_roots.contains(&part.to_string()) {
-            return true;
+    let components: Vec<_> = p
+        .components()
+        .filter_map(|c| c.as_os_str().to_str())
+        .collect();
+    if components.len() > 1 {
+        for part in &components[0..components.len() - 1] {
+            if test_roots.contains(&part.to_string()) {
+                return true;
+            }
         }
     }
     name.starts_with("test_") || name.ends_with("_test.py") || name.ends_with(".test.py")
@@ -351,37 +382,127 @@ fn is_near_seed(support_file: &str, seed: &str) -> bool {
         || seed_parent.starts_with(sf_parent)
 }
 
-fn walk_neighbors(
-    edges: &HashMap<String, HashSet<String>>,
+use std::cmp::Ordering;
+use std::collections::BinaryHeap;
+
+#[derive(Debug, Clone)]
+struct QueueState {
+    strength: f64,
+    depth: usize,
+    node: String,
+}
+
+impl Eq for QueueState {}
+
+impl PartialEq for QueueState {
+    fn eq(&self, other: &Self) -> bool {
+        self.strength == other.strength && self.depth == other.depth && self.node == other.node
+    }
+}
+
+impl Ord for QueueState {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.strength
+            .partial_cmp(&other.strength)
+            .unwrap_or(Ordering::Equal)
+            .then_with(|| other.depth.cmp(&self.depth))
+    }
+}
+
+impl PartialOrd for QueueState {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+fn walk_weighted_neighbors(
+    edges: &[NativeRelationEdge],
     start: &str,
     depth: usize,
-) -> HashMap<String, usize> {
-    let mut found = HashMap::new();
-    let mut frontier = HashSet::new();
-    frontier.insert(start.to_string());
-    let mut visited = HashSet::new();
-    visited.insert(start.to_string());
+    top_dependencies: usize,
+    reverse: bool,
+) -> HashMap<String, f64> {
+    let mut adj: HashMap<String, Vec<(String, &NativeRelationEdge)>> = HashMap::new();
+    for edge in edges {
+        let u = if reverse { &edge.target } else { &edge.source };
+        let v = if reverse { &edge.source } else { &edge.target };
+        adj.entry(u.clone()).or_default().push((v.clone(), edge));
+    }
 
-    for distance in 1..=depth {
-        let mut next_frontier = HashSet::new();
-        for item in frontier {
-            if let Some(neighbors) = edges.get(&item) {
-                for neighbor in neighbors {
-                    if visited.contains(neighbor) {
-                        continue;
+    if top_dependencies > 0 {
+        for edges_from_u in adj.values_mut() {
+            if edges_from_u.len() > top_dependencies {
+                edges_from_u.sort_by(|a, b| {
+                    let str_a = a.1.weight * a.1.confidence;
+                    let str_b = b.1.weight * b.1.confidence;
+                    str_b.partial_cmp(&str_a).unwrap_or(Ordering::Equal)
+                });
+                edges_from_u.truncate(top_dependencies);
+            }
+        }
+    }
+
+    let mut max_strength: HashMap<String, f64> = HashMap::new();
+    max_strength.insert(start.to_string(), 1.0);
+
+    let mut best_at_state: HashMap<(String, usize), f64> = HashMap::new();
+    best_at_state.insert((start.to_string(), 0), 1.0);
+
+    let mut heap = BinaryHeap::new();
+    heap.push(QueueState {
+        strength: 1.0,
+        depth: 0,
+        node: start.to_string(),
+    });
+
+    while let Some(QueueState {
+        strength: u_str,
+        depth: u_depth,
+        node: u,
+    }) = heap.pop()
+    {
+        if u_str < *best_at_state.get(&(u.clone(), u_depth)).unwrap_or(&0.0) {
+            continue;
+        }
+
+        if u_depth >= depth {
+            continue;
+        }
+
+        if let Some(neighbors) = adj.get(&u) {
+            for (neighbor, edge) in neighbors {
+                let edge_str = if edge.kind == "import" || edge.kind == "reexport" {
+                    if u_depth == 0 {
+                        1.0
+                    } else {
+                        0.88
                     }
-                    visited.insert(neighbor.clone());
-                    found.insert(neighbor.clone(), distance);
-                    next_frontier.insert(neighbor.clone());
+                } else {
+                    edge.weight * edge.confidence
+                };
+
+                let next_str = u_str * edge_str;
+                let next_depth = u_depth + 1;
+
+                if next_str > *max_strength.get(neighbor).unwrap_or(&0.0) {
+                    max_strength.insert(neighbor.clone(), next_str);
+                }
+
+                let state_key = (neighbor.clone(), next_depth);
+                if next_str > *best_at_state.get(&state_key).unwrap_or(&0.0) {
+                    best_at_state.insert(state_key, next_str);
+                    heap.push(QueueState {
+                        strength: next_str,
+                        depth: next_depth,
+                        node: neighbor.clone(),
+                    });
                 }
             }
         }
-        frontier = next_frontier;
-        if frontier.is_empty() {
-            break;
-        }
     }
-    found
+
+    max_strength.remove(start);
+    max_strength
 }
 
 fn support_base_score(file: &NativeFileInfo, options: &NativePackOptions) -> i32 {
@@ -429,7 +550,7 @@ fn matches_entrypoint(rel: &str, entrypoint_patterns: &[String]) -> bool {
 pub fn score_candidates_native(
     files: Vec<NativeFileInfo>,
     seeds_list: Vec<String>,
-    edges: Vec<NativeImportEdge>,
+    edges: Vec<NativeRelationEdge>,
     options: NativePackOptions,
 ) -> PyResult<Vec<NativeCandidate>> {
     let mut mapped_files = HashMap::new();
@@ -450,28 +571,30 @@ pub fn score_candidates_native(
     // Build graph edges maps
     let mut graph_imports: HashMap<String, HashSet<String>> = HashMap::new();
     let mut graph_imported_by: HashMap<String, HashSet<String>> = HashMap::new();
-    for edge in edges {
-        graph_imports
-            .entry(edge.from.clone())
-            .or_default()
-            .insert(edge.to.clone());
-        graph_imported_by
-            .entry(edge.to.clone())
-            .or_default()
-            .insert(edge.from.clone());
+    for edge in &edges {
+        if edge.kind == "import" || edge.kind == "reexport" {
+            graph_imports
+                .entry(edge.source.clone())
+                .or_default()
+                .insert(edge.target.clone());
+            graph_imported_by
+                .entry(edge.target.clone())
+                .or_default()
+                .insert(edge.source.clone());
+        }
     }
 
     if options.mode == "project_snapshot" {
         for (rel, c) in &mut mapped_files {
             if c.info.kind == "code" {
                 if matches_entrypoint(rel, &options.entrypoint_patterns) {
-                    c.score = 90;
+                    c.score = options.entrypoint_file_score;
                     add_reason(c, "entrypoint", "entrypoint file", None);
                 } else if is_test_file(rel, &options.test_roots) {
-                    c.score = 60;
+                    c.score = options.test_file_score;
                     add_reason(c, "test_file", "test file", None);
                 } else {
-                    c.score = 80;
+                    c.score = options.code_file_score;
                     add_reason(c, "code_file", "code file", None);
                 }
             } else if c.info.kind == "support" && options.support_enabled {
@@ -531,10 +654,16 @@ pub fn score_candidates_native(
             for seed_rel in &seed_files {
                 // Direct dependencies
                 if options.include_direct_dependencies {
-                    for (dep, distance) in walk_neighbors(&graph_imports, seed_rel, options.depth) {
+                    for (dep, strength) in walk_weighted_neighbors(
+                        &edges,
+                        seed_rel,
+                        options.depth,
+                        options.top_dependencies,
+                        false,
+                    ) {
                         let score = std::cmp::max(
                             options.tree_min_score,
-                            options.direct_dependency_score - ((distance as i32 - 1) * 10),
+                            (options.direct_dependency_score as f64 * strength) as i32,
                         );
                         if let Some(c) = mapped_files.get_mut(&dep) {
                             c.score = std::cmp::max(c.score, score);
@@ -551,12 +680,16 @@ pub fn score_candidates_native(
 
                 // Reverse dependencies
                 if options.include_reverse_dependencies {
-                    for (dep, distance) in
-                        walk_neighbors(&graph_imported_by, seed_rel, options.depth)
-                    {
+                    for (dep, strength) in walk_weighted_neighbors(
+                        &edges,
+                        seed_rel,
+                        options.depth,
+                        options.top_dependencies,
+                        true,
+                    ) {
                         let score = std::cmp::max(
                             options.tree_min_score,
-                            options.reverse_dependency_score - ((distance as i32 - 1) * 10),
+                            (options.reverse_dependency_score as f64 * strength) as i32,
                         );
                         if let Some(c) = mapped_files.get_mut(&dep) {
                             c.score = std::cmp::max(c.score, score);

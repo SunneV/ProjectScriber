@@ -25,11 +25,15 @@ def parse_python_imports(path: Path, source: str) -> list[ImportRecord]:
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
-                imports.append(ImportRecord(kind="import", module=alias.name, names=(), level=0))
+                imports.append(
+                    ImportRecord(kind="import", module=alias.name, names=(), level=0)
+                )
         elif isinstance(node, ast.ImportFrom):
             module = node.module or ""
             names = tuple(alias.name for alias in node.names if alias.name != "*")
-            imports.append(ImportRecord(kind="from", module=module, names=names, level=node.level))
+            imports.append(
+                ImportRecord(kind="from", module=module, names=names, level=node.level)
+            )
     return imports
 
 
@@ -55,7 +59,11 @@ def module_name_for_file(file: FileNode, python: PythonConfig) -> str | None:
     if file.language != "python":
         return None
     rel = file.relative
-    roots = sorted(python.source_roots, key=lambda item: 0 if item == "." else len(item), reverse=True)
+    roots = sorted(
+        python.source_roots,
+        key=lambda item: 0 if item == "." else len(item),
+        reverse=True,
+    )
     for source_root in roots:
         if not _is_under(rel, source_root):
             continue
@@ -73,7 +81,9 @@ def module_name_for_file(file: FileNode, python: PythonConfig) -> str | None:
     return None
 
 
-def build_module_map(files: dict[Path, FileNode], python: PythonConfig) -> tuple[dict[str, Path], dict[Path, str]]:
+def build_module_map(
+    files: dict[Path, FileNode], python: PythonConfig
+) -> tuple[dict[str, Path], dict[Path, str]]:
     module_to_path: dict[str, Path] = {}
     path_to_module: dict[Path, str] = {}
     for rel, file in files.items():
@@ -85,7 +95,9 @@ def build_module_map(files: dict[Path, FileNode], python: PythonConfig) -> tuple
     return module_to_path, path_to_module
 
 
-def resolve_relative_module(current_module: str, current_is_init: bool, record: ImportRecord) -> str:
+def resolve_relative_module(
+    current_module: str, current_is_init: bool, record: ImportRecord
+) -> str:
     if record.level <= 0:
         return record.module
     if current_is_init:
@@ -114,7 +126,11 @@ def resolve_import_record(
     if record.kind == "import":
         candidates.append(record.module)
     else:
-        base = resolve_relative_module(current_module, current_is_init, record) if record.level else record.module
+        base = (
+            resolve_relative_module(current_module, current_is_init, record)
+            if record.level
+            else record.module
+        )
         for name in record.names:
             if base:
                 candidates.append(f"{base}.{name}")

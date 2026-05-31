@@ -14,6 +14,7 @@ def _load_native() -> Any:
         raise _IMPORT_ERROR
     try:
         from scriber import _native
+
         _NATIVE_MODULE = _native
         return _NATIVE_MODULE
     except ImportError as e:
@@ -35,7 +36,9 @@ def require_native() -> Any:
     try:
         native = _load_native()
         if hasattr(native, "native_api_version") and native.native_api_version() != 1:
-            raise RuntimeError("Niezgodna wersja natywnego backendu Scriber (oczekiwano wersji 1).")
+            raise RuntimeError(
+                "Niezgodna wersja natywnego backendu Scriber (oczekiwano wersji 1)."
+            )
         return native
     except ImportError as e:
         raise ImportError(

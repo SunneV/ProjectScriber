@@ -63,17 +63,25 @@ patterns = [".git/**"]
     write(tmp_path / "poetry.lock", "very large lock in real life\n")
     write(tmp_path / "Dockerfile", "FROM python:3.12\n")
     write(tmp_path / "src/app/__init__.py", "")
-    write(tmp_path / "src/app/auth.py", "from .session import Session\nfrom .config import SETTINGS\n\nclass Auth: pass\n")
+    write(
+        tmp_path / "src/app/auth.py",
+        "from .session import Session\nfrom .config import SETTINGS\n\nclass Auth: pass\n",
+    )
     write(tmp_path / "src/app/session.py", "class Session: pass\n")
     write(tmp_path / "src/app/config.py", "SETTINGS = {}\n")
     write(tmp_path / "src/app/main.py", "from app.auth import Auth\n")
     write(tmp_path / "src/api/routes.py", "from app.auth import Auth\n")
-    write(tmp_path / "tests/test_auth.py", "from app.auth import Auth\n\ndef test_auth():\n    assert Auth\n")
+    write(
+        tmp_path / "tests/test_auth.py",
+        "from app.auth import Auth\n\ndef test_auth():\n    assert Auth\n",
+    )
     write(tmp_path / "src/app/unrelated.py", "VALUE = 1\n")
     return tmp_path
 
 
-def test_build_pack_includes_seed_dependencies_reverse_tests_and_support(tmp_path: Path, monkeypatch) -> None:
+def test_build_pack_includes_seed_dependencies_reverse_tests_and_support(
+    tmp_path: Path, monkeypatch
+) -> None:
     project = make_project(tmp_path)
     monkeypatch.chdir(project)
 
@@ -90,7 +98,9 @@ def test_build_pack_includes_seed_dependencies_reverse_tests_and_support(tmp_pat
     assert "requirements.txt" in paths
     assert "poetry.lock" in paths
 
-    by_path = {candidate.file.relative.as_posix(): candidate for candidate in pack.candidates}
+    by_path = {
+        candidate.file.relative.as_posix(): candidate for candidate in pack.candidates
+    }
     assert by_path["src/app/auth.py"].score == 100
     assert by_path["src/app/session.py"].score >= 80
     assert by_path["src/api/routes.py"].score >= 80
@@ -119,11 +129,18 @@ def test_multiple_paths_promote_shared_dependency(tmp_path: Path, monkeypatch) -
     write(tmp_path / "src/app/billing.py", "from .config import SETTINGS\n")
     monkeypatch.chdir(project)
 
-    pack = build_pack(["src/app/auth.py", "src/app/billing.py"], config_path="pyproject.toml")
-    by_path = {candidate.file.relative.as_posix(): candidate for candidate in pack.candidates}
+    pack = build_pack(
+        ["src/app/auth.py", "src/app/billing.py"], config_path="pyproject.toml"
+    )
+    by_path = {
+        candidate.file.relative.as_posix(): candidate for candidate in pack.candidates
+    }
     assert "src/app/config.py" in by_path
     assert by_path["src/app/config.py"].score == 100
-    assert any("shared by multiple seed paths" in reason for reason in by_path["src/app/config.py"].reasons)
+    assert any(
+        "shared by multiple seed paths" in reason
+        for reason in by_path["src/app/config.py"].reasons
+    )
 
 
 def test_no_modules_keeps_seed_and_pyproject(tmp_path: Path, monkeypatch) -> None:
@@ -155,8 +172,10 @@ def test_project_snapshot_mode(tmp_path: Path, monkeypatch) -> None:
     pack = build_pack(["."], config_path="pyproject.toml")
     assert pack.mode == "project_snapshot"
 
-    by_path = {candidate.file.relative.as_posix(): candidate for candidate in pack.candidates}
-    
+    by_path = {
+        candidate.file.relative.as_posix(): candidate for candidate in pack.candidates
+    }
+
     # Entrypoint (e.g., src/app/main.py matches main.py pattern)
     assert by_path["src/app/main.py"].score == 90
     assert by_path["src/app/main.py"].reason_summary == "entrypoint file"
@@ -172,7 +191,7 @@ def test_project_snapshot_mode(tmp_path: Path, monkeypatch) -> None:
     # Support files
     assert by_path["README.md"].score == 45
     assert by_path["README.md"].reason_summary == "project support file"
-    
+
     # Ensure no near-seed duplication in project snapshot mode
     assert "near" not in by_path["README.md"].reason_summary
     assert "shared by multiple seed paths" not in by_path["README.md"].reasons
@@ -180,6 +199,7 @@ def test_project_snapshot_mode(tmp_path: Path, monkeypatch) -> None:
 
 def test_dry_run_and_open_cli(tmp_path: Path, monkeypatch) -> None:
     from scriber.cli.main import main
+
     project = make_project(tmp_path)
     monkeypatch.chdir(project)
 
@@ -219,4 +239,3 @@ def test_no_support_excludes_support_files_folder_seed(tmp_path: Path) -> None:
     paths = {c.file.relative.as_posix() for c in pack.candidates}
     assert "README.md" not in paths
     assert "pyproject.toml" not in paths
-

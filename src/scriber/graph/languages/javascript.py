@@ -21,7 +21,9 @@ def parse_javascript_imports(source: str) -> list[str]:
     return imports
 
 
-def resolve_javascript_import(import_spec: str, current_file: FileNode, absolute_to_file: dict[Path, FileNode]) -> set[Path]:
+def resolve_javascript_import(
+    import_spec: str, current_file: FileNode, absolute_to_file: dict[Path, FileNode]
+) -> set[Path]:
     resolved = set()
     if not import_spec.startswith("."):
         return resolved
@@ -31,8 +33,19 @@ def resolve_javascript_import(import_spec: str, current_file: FileNode, absolute
         base_path = Path(os.path.abspath(parent / import_spec))
     except Exception:
         base_path = (parent / import_spec).resolve(strict=False)
-        
-    extensions = ["", ".ts", ".tsx", ".js", ".jsx", ".d.ts"]
+
+    extensions = [
+        "",
+        ".ts",
+        ".tsx",
+        ".js",
+        ".jsx",
+        ".d.ts",
+        ".vue",
+        ".svelte",
+        ".astro",
+        ".json",
+    ]
     for ext in extensions:
         candidate = base_path.with_name(base_path.name + ext) if ext else base_path
         node = absolute_to_file.get(candidate)
@@ -41,7 +54,15 @@ def resolve_javascript_import(import_spec: str, current_file: FileNode, absolute
             return resolved
 
     # Try index files
-    for index_name in ["index.ts", "index.tsx", "index.js", "index.jsx"]:
+    for index_name in [
+        "index.ts",
+        "index.tsx",
+        "index.js",
+        "index.jsx",
+        "index.vue",
+        "index.svelte",
+        "index.astro",
+    ]:
         candidate = base_path / index_name
         node = absolute_to_file.get(candidate)
         if node and not node.is_binary:
