@@ -460,8 +460,6 @@ fn walk_weighted_neighbors(
     max_strength
 }
 
-
-
 fn support_base_score(file: &NativeFileInfo, options: &NativePackOptions) -> i32 {
     let cat = file.support_category.as_deref().unwrap_or("support file");
     match cat {
