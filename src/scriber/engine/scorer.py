@@ -3,14 +3,23 @@ from __future__ import annotations
 from pathlib import Path
 
 from scriber.core.matchers import match_pattern
-from scriber.core.models import Candidate, FileNode, ModuleGraph, ScriberConfig, SeedPath, RelationEdge
+from scriber.core.models import (
+    Candidate,
+    FileNode,
+    ModuleGraph,
+    ScriberConfig,
+    SeedPath,
+    RelationEdge,
+)
 
 
 def _score(config: ScriberConfig, key: str) -> int:
     return int(config.modules_config.scoring.get(key, 0))
 
 
-def _add_reason(candidate: Candidate, kind: str, label: str, example: Path | None = None) -> None:
+def _add_reason(
+    candidate: Candidate, kind: str, label: str, example: Path | None = None
+) -> None:
     candidate.reason_counts[kind] = candidate.reason_counts.get(kind, 0) + 1
     if example is not None:
         if kind not in candidate.reason_examples:
@@ -89,18 +98,22 @@ def _add(
         candidates[rel] = existing
     else:
         existing.score = max(existing.score, score)
-    
+
     _add_reason(existing, kind, label, example=seed)
     if seed is not None:
         existing.seed_sources.add(seed)
 
 
 def _is_test_file(rel: Path, config: ScriberConfig) -> bool:
-    parts = rel.parts
+    parts = rel.parts[:-1] if len(rel.parts) > 1 else ()
     name = rel.name.lower()
     if any(part in set(config.python.test_roots) for part in parts):
         return True
-    return name.startswith("test_") or name.endswith("_test.py") or name.endswith(".test.py")
+    return (
+        name.startswith("test_")
+        or name.endswith("_test.py")
+        or name.endswith(".test.py")
+    )
 
 
 def _name_related(a: Path, b: Path) -> bool:
@@ -112,56 +125,55 @@ def _name_related(a: Path, b: Path) -> bool:
 
 
 def _walk_weighted_neighbors(
-    edges: list[RelationEdge],
-    start: Path,
-    depth_limit: int,
-    reverse: bool = False
+    edges: list[RelationEdge], start: Path, depth_limit: int, reverse: bool = False
 ) -> dict[Path, float]:
     import heapq
-    
+
     adj: dict[Path, list[tuple[Path, RelationEdge]]] = {}
     for edge in edges:
         u = edge.target if reverse else edge.source
         v = edge.source if reverse else edge.target
         adj.setdefault(u, []).append((v, edge))
-        
+
     queue = [(-1.0, 0, start)]
     max_strength: dict[Path, float] = {start: 1.0}
     best_at_state: dict[tuple[Path, int], float] = {(start, 0): 1.0}
-    
+
     while queue:
         neg_str, depth, u = heapq.heappop(queue)
         u_str = -neg_str
-        
+
         if u_str < best_at_state.get((u, depth), 0.0):
             continue
-            
+
         if depth >= depth_limit:
             continue
-            
+
         for neighbor, edge in adj.get(u, []):
             if edge.kind in {"import", "reexport"}:
                 edge_str = 1.0 if depth == 0 else 0.88
             else:
                 edge_str = edge.weight * edge.confidence
-                
+
             next_str = u_str * edge_str
             next_depth = depth + 1
-            
+
             if next_str > max_strength.get(neighbor, 0.0):
                 max_strength[neighbor] = next_str
-                
+
             if next_str > best_at_state.get((neighbor, next_depth), 0.0):
                 best_at_state[(neighbor, next_depth)] = next_str
                 heapq.heappush(queue, (-next_str, next_depth, neighbor))
-                
+
     if start in max_strength:
         del max_strength[start]
-        
+
     return max_strength
 
 
-def _walk_neighbors(edges: dict[Path, set[Path]], start: Path, depth: int) -> dict[Path, int]:
+def _walk_neighbors(
+    edges: dict[Path, set[Path]], start: Path, depth: int
+) -> dict[Path, int]:
     found: dict[Path, int] = {}
     frontier = {start}
     visited = {start}
@@ -186,7 +198,12 @@ def _support_base_score(file: FileNode, config: ScriberConfig) -> int:
         return _score(config, "project_config")
     if category == "dependency file":
         return _score(config, "dependency_file")
-    if category in {"runtime support", "runtime config", "ci support", "tooling config"}:
+    if category in {
+        "runtime support",
+        "runtime config",
+        "ci support",
+        "tooling config",
+    }:
         return _score(config, "runtime_support")
     if category == "documentation":
         return _score(config, "documentation")
@@ -197,11 +214,18 @@ def _is_near_seed(support_file: Path, seed: Path) -> bool:
     if support_file.parent == Path("."):
         return True
     seed_parent = seed.parent
-    return support_file.parent == seed_parent or support_file.parent in seed_parent.parents or seed_parent in support_file.parent.parents
+    return (
+        support_file.parent == seed_parent
+        or support_file.parent in seed_parent.parents
+        or seed_parent in support_file.parent.parents
+    )
 
 
 def _matches_entrypoint(rel: Path, config: ScriberConfig) -> bool:
-    return any(match_pattern(rel.name, pattern) for pattern in config.python.entrypoint_patterns)
+    return any(
+        match_pattern(rel.name, pattern)
+        for pattern in config.python.entrypoint_patterns
+    )
 
 
 def score_candidates_project_snapshot(
@@ -215,17 +239,45 @@ def score_candidates_project_snapshot(
     for rel, file in files.items():
         if file.kind == "code":
             if _matches_entrypoint(rel, config):
-                _add(candidates, files, rel, 90, "entrypoint", "entrypoint file")
+                _add(
+                    candidates,
+                    files,
+                    rel,
+                    _score(config, "entrypoint_file"),
+                    "entrypoint",
+                    "entrypoint file",
+                )
             elif _is_test_file(rel, config):
-                _add(candidates, files, rel, 60, "test_file", "test file")
+                _add(
+                    candidates,
+                    files,
+                    rel,
+                    _score(config, "test_file"),
+                    "test_file",
+                    "test file",
+                )
             else:
-                _add(candidates, files, rel, 80, "code_file", "code file")
+                _add(
+                    candidates,
+                    files,
+                    rel,
+                    _score(config, "code_file"),
+                    "code_file",
+                    "code file",
+                )
         elif file.kind == "support" and config.support:
             base = _support_base_score(file, config)
             category = file.support_category or "support file"
             _add(candidates, files, rel, base, "project_support", category)
         elif file.kind == "other":
-            _add(candidates, files, rel, 40, "other_file", "other file")
+            _add(
+                candidates,
+                files,
+                rel,
+                _score(config, "other_file"),
+                "other_file",
+                "other file",
+            )
 
     for candidate in candidates.values():
         candidate.reason_summary = _build_reason_summary(candidate)
@@ -233,16 +285,37 @@ def score_candidates_project_snapshot(
     filtered = [
         candidate
         for rel, candidate in candidates.items()
-        if candidate.score >= config.min_score or candidate.score >= config.modules_config.tree_min_score
+        if candidate.score >= config.min_score
+        or candidate.score >= config.modules_config.tree_min_score
     ]
-    filtered.sort(key=lambda item: (-item.score, item.file.kind != "code", item.file.relative.as_posix()))
+    filtered.sort(
+        key=lambda item: (
+            -item.score,
+            item.file.kind != "code",
+            item.file.relative.as_posix(),
+        )
+    )
 
     if config.max_files > 0 and len(filtered) > config.max_files:
-        pinned = [c for c in filtered if c.file.relative.name in {"pyproject.toml", "README.md"}]
-        rest = [c for c in filtered if c.file.relative.name not in {"pyproject.toml", "README.md"}]
+        pinned = [
+            c
+            for c in filtered
+            if c.file.relative.name in {"pyproject.toml", "README.md"}
+        ]
+        rest = [
+            c
+            for c in filtered
+            if c.file.relative.name not in {"pyproject.toml", "README.md"}
+        ]
         remaining = max(0, config.max_files - len(pinned))
         filtered = pinned + rest[:remaining]
-        filtered.sort(key=lambda item: (-item.score, item.file.kind != "code", item.file.relative.as_posix()))
+        filtered.sort(
+            key=lambda item: (
+                -item.score,
+                item.file.kind != "code",
+                item.file.relative.as_posix(),
+            )
+        )
 
     return filtered
 
@@ -256,7 +329,9 @@ def score_candidates(
     mode: str = "focused",
 ) -> list[Candidate]:
     if mode == "project_snapshot":
-        return score_candidates_project_snapshot(files=files, graph=graph, config=config)
+        return score_candidates_project_snapshot(
+            files=files, graph=graph, config=config
+        )
 
     candidates: dict[Path, Candidate] = {}
     scoring = config.modules_config
@@ -266,43 +341,127 @@ def score_candidates(
     for seed in seeds:
         for rel in seed.expanded_files:
             key = "seed_folder_file" if seed.is_dir else "seed_file"
-            reason = f"file inside seed folder `{seed.relative.as_posix()}`" if seed.is_dir else "seed file"
-            _add(candidates, files, rel, _score(config, key), "seed_folder_file" if seed.is_dir else "seed_file", reason, seed=rel)
+            reason = (
+                f"file inside seed folder `{seed.relative.as_posix()}`"
+                if seed.is_dir
+                else "seed file"
+            )
+            _add(
+                candidates,
+                files,
+                rel,
+                _score(config, key),
+                "seed_folder_file" if seed.is_dir else "seed_file",
+                reason,
+                seed=rel,
+            )
 
     if config.modules and scoring.enabled:
         for seed_rel in seed_files:
             if scoring.include_direct_dependencies:
-                for dep, strength in _walk_weighted_neighbors(graph.edges, seed_rel, scoring.depth, reverse=False).items():
-                    score = max(scoring.tree_min_score, int(_score(config, "direct_dependency") * strength))
-                    _add(candidates, files, dep, score, "direct_dependency", f"direct dependency of `{seed_rel.as_posix()}`", seed=seed_rel)
+                for dep, strength in _walk_weighted_neighbors(
+                    graph.edges, seed_rel, scoring.depth, reverse=False
+                ).items():
+                    score = max(
+                        scoring.tree_min_score,
+                        int(_score(config, "direct_dependency") * strength),
+                    )
+                    _add(
+                        candidates,
+                        files,
+                        dep,
+                        score,
+                        "direct_dependency",
+                        f"direct dependency of `{seed_rel.as_posix()}`",
+                        seed=seed_rel,
+                    )
 
             if scoring.include_reverse_dependencies:
-                for dep, strength in _walk_weighted_neighbors(graph.edges, seed_rel, scoring.depth, reverse=True).items():
-                    score = max(scoring.tree_min_score, int(_score(config, "reverse_dependency") * strength))
-                    _add(candidates, files, dep, score, "reverse_dependency", f"imports seed `{seed_rel.as_posix()}`", seed=seed_rel)
+                for dep, strength in _walk_weighted_neighbors(
+                    graph.edges, seed_rel, scoring.depth, reverse=True
+                ).items():
+                    score = max(
+                        scoring.tree_min_score,
+                        int(_score(config, "reverse_dependency") * strength),
+                    )
+                    _add(
+                        candidates,
+                        files,
+                        dep,
+                        score,
+                        "reverse_dependency",
+                        f"imports seed `{seed_rel.as_posix()}`",
+                        seed=seed_rel,
+                    )
 
             if scoring.include_same_package:
                 seed_parent = seed_rel.parent
                 for rel, file in files.items():
-                    if file.kind == "code" and rel.parent == seed_parent and rel not in seed_set:
-                        _add(candidates, files, rel, _score(config, "same_package"), "same_package", f"same package as `{seed_rel.as_posix()}`", seed=seed_rel)
+                    if (
+                        file.kind == "code"
+                        and rel.parent == seed_parent
+                        and rel not in seed_set
+                    ):
+                        _add(
+                            candidates,
+                            files,
+                            rel,
+                            _score(config, "same_package"),
+                            "same_package",
+                            f"same package as `{seed_rel.as_posix()}`",
+                            seed=seed_rel,
+                        )
 
             if scoring.include_parent_entrypoints:
                 for rel, file in files.items():
                     if file.kind == "code" and _matches_entrypoint(rel, config):
-                        if rel.parent == Path(".") or rel.parent in seed_rel.parents or seed_rel.parent in rel.parents:
-                            _add(candidates, files, rel, _score(config, "parent_entrypoint"), "parent_entrypoint", f"parent/entrypoint near `{seed_rel.as_posix()}`", seed=seed_rel)
+                        if (
+                            rel.parent == Path(".")
+                            or rel.parent in seed_rel.parents
+                            or seed_rel.parent in rel.parents
+                        ):
+                            _add(
+                                candidates,
+                                files,
+                                rel,
+                                _score(config, "parent_entrypoint"),
+                                "parent_entrypoint",
+                                f"parent/entrypoint near `{seed_rel.as_posix()}`",
+                                seed=seed_rel,
+                            )
 
             if scoring.include_tests:
                 for rel, file in files.items():
                     if file.kind != "code" or not _is_test_file(rel, config):
                         continue
-                    if _name_related(rel, seed_rel) or seed_rel in graph.imports.get(rel, set()):
-                        _add(candidates, files, rel, _score(config, "related_test"), "related_test", f"related test for `{seed_rel.as_posix()}`", seed=seed_rel)
+                    if _name_related(rel, seed_rel) or seed_rel in graph.imports.get(
+                        rel, set()
+                    ):
+                        _add(
+                            candidates,
+                            files,
+                            rel,
+                            _score(config, "related_test"),
+                            "related_test",
+                            f"related test for `{seed_rel.as_posix()}`",
+                            seed=seed_rel,
+                        )
 
             for rel, file in files.items():
-                if file.kind == "code" and rel not in seed_set and _name_related(rel, seed_rel):
-                    _add(candidates, files, rel, _score(config, "name_similarity"), "name_similarity", f"name similarity with `{seed_rel.as_posix()}`", seed=seed_rel)
+                if (
+                    file.kind == "code"
+                    and rel not in seed_set
+                    and _name_related(rel, seed_rel)
+                ):
+                    _add(
+                        candidates,
+                        files,
+                        rel,
+                        _score(config, "name_similarity"),
+                        "name_similarity",
+                        f"name similarity with `{seed_rel.as_posix()}`",
+                        seed=seed_rel,
+                    )
 
         if config.support:
             for rel, file in files.items():
@@ -311,24 +470,52 @@ def score_candidates(
                 base = _support_base_score(file, config)
                 reason = file.support_category or "support file"
                 if rel.name == "pyproject.toml":
-                    _add(candidates, files, rel, _score(config, "project_config"), "project_support", "project config/root file")
+                    _add(
+                        candidates,
+                        files,
+                        rel,
+                        _score(config, "project_config"),
+                        "project_support",
+                        "project config/root file",
+                    )
                     continue
                 added = False
                 for seed_rel in seed_files:
                     if _is_near_seed(rel, seed_rel):
-                        _add(candidates, files, rel, max(base, _score(config, "support_near_seed")), "support_near_seed", f"{reason} near `{seed_rel.as_posix()}`", seed=seed_rel)
+                        _add(
+                            candidates,
+                            files,
+                            rel,
+                            max(base, _score(config, "support_near_seed")),
+                            "support_near_seed",
+                            f"{reason} near `{seed_rel.as_posix()}`",
+                            seed=seed_rel,
+                        )
                         added = True
-                if not added and file.relative.parent == Path(".") and scoring.include_project_configs:
+                if (
+                    not added
+                    and file.relative.parent == Path(".")
+                    and scoring.include_project_configs
+                ):
                     _add(candidates, files, rel, base, "project_support", reason)
     else:
         if config.support:
             pyproject = files.get(Path("pyproject.toml"))
             if pyproject:
-                _add(candidates, files, Path("pyproject.toml"), _score(config, "project_config"), "project_support", "project config/root file")
+                _add(
+                    candidates,
+                    files,
+                    Path("pyproject.toml"),
+                    _score(config, "project_config"),
+                    "project_support",
+                    "project config/root file",
+                )
 
     for candidate in candidates.values():
         if len(candidate.seed_sources) > 1:
-            candidate.score = min(100, candidate.score + _score(config, "shared_dependency_bonus"))
+            candidate.score = min(
+                100, candidate.score + _score(config, "shared_dependency_bonus")
+            )
             _add_reason(candidate, "shared_dependency", "shared by multiple seed paths")
 
     for candidate in candidates.values():
@@ -338,15 +525,39 @@ def score_candidates(
     filtered = [
         candidate
         for rel, candidate in candidates.items()
-        if rel in required or candidate.score >= config.min_score or candidate.score >= config.modules_config.tree_min_score
+        if rel in required
+        or candidate.score >= config.min_score
+        or candidate.score >= config.modules_config.tree_min_score
     ]
-    filtered.sort(key=lambda item: (-item.score, item.file.kind != "code", item.file.relative.as_posix()))
+    filtered.sort(
+        key=lambda item: (
+            -item.score,
+            item.file.kind != "code",
+            item.file.relative.as_posix(),
+        )
+    )
 
     if config.max_files > 0 and len(filtered) > config.max_files:
-        seeds_first = [candidate for candidate in filtered if candidate.file.relative in required or candidate.file.relative.name in {"pyproject.toml", "README.md"}]
-        rest = [candidate for candidate in filtered if candidate.file.relative not in required and candidate.file.relative.name not in {"pyproject.toml", "README.md"}]
+        seeds_first = [
+            candidate
+            for candidate in filtered
+            if candidate.file.relative in required
+            or candidate.file.relative.name in {"pyproject.toml", "README.md"}
+        ]
+        rest = [
+            candidate
+            for candidate in filtered
+            if candidate.file.relative not in required
+            and candidate.file.relative.name not in {"pyproject.toml", "README.md"}
+        ]
         remaining = max(0, config.max_files - len(seeds_first))
         filtered = seeds_first + rest[:remaining]
-        filtered.sort(key=lambda item: (-item.score, item.file.kind != "code", item.file.relative.as_posix()))
+        filtered.sort(
+            key=lambda item: (
+                -item.score,
+                item.file.kind != "code",
+                item.file.relative.as_posix(),
+            )
+        )
 
     return filtered

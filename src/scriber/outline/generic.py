@@ -2,6 +2,7 @@ from __future__ import annotations
 from scriber.core.models import FileNode, FileOutline
 from scriber.outline.base import Outliner
 
+
 class GenericOutliner(Outliner):
     def outline(self, file: FileNode, content: str) -> FileOutline:
         return FileOutline(
@@ -13,6 +14,8 @@ class GenericOutliner(Outliner):
             classes=[],
             functions=[],
             constants=[],
-            notes=["Static outline not implemented for this language. Showing generic info."],
-            token_estimate=20
+            notes=[
+                "Static outline not implemented for this language. Showing generic info."
+            ],
+            token_estimate=20,
         )

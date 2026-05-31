@@ -11,5 +11,6 @@ from scriber.graph.model import RelationEdge
 class RelationAnalyzer(Protocol):
     name: str
 
-    def analyze(self, files: dict[Path, FileNode], indexes: GraphIndexes, config: ScriberConfig) -> Iterable[RelationEdge]:
-        ...
+    def analyze(
+        self, files: dict[Path, FileNode], indexes: GraphIndexes, config: ScriberConfig
+    ) -> Iterable[RelationEdge]: ...

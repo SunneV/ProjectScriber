@@ -10,7 +10,6 @@ OutputFormat = Literal["md", "txt"]
 PackMode = Literal["focused", "project_snapshot"]
 
 
-
 DEFAULT_SCORING: dict[str, int] = {
     "seed_file": 100,
     "seed_folder_file": 100,
@@ -26,6 +25,10 @@ DEFAULT_SCORING: dict[str, int] = {
     "documentation": 45,
     "name_similarity": 45,
     "shared_dependency_bonus": 10,
+    "entrypoint_file": 90,
+    "code_file": 80,
+    "test_file": 60,
+    "other_file": 40,
 }
 
 
@@ -50,7 +53,14 @@ class PythonConfig:
     test_roots: list[str] = field(default_factory=lambda: ["tests", "test"])
     module_init_files: list[str] = field(default_factory=lambda: ["__init__.py"])
     entrypoint_patterns: list[str] = field(
-        default_factory=lambda: ["main.py", "app.py", "asgi.py", "wsgi.py", "routes.py", "router.py"]
+        default_factory=lambda: [
+            "main.py",
+            "app.py",
+            "asgi.py",
+            "wsgi.py",
+            "routes.py",
+            "router.py",
+        ]
     )
 
 
@@ -108,7 +118,9 @@ class FileNode:
     is_binary: bool = False
     support_category: str | None = None
     content_policy: ContentPolicy = "auto"
-    _cached_text: str | None = field(default=None, init=False, repr=False, compare=False, hash=False)
+    _cached_text: str | None = field(
+        default=None, init=False, repr=False, compare=False, hash=False
+    )
 
     def read_text(self) -> str:
         if self._cached_text is not None:
@@ -116,6 +128,7 @@ class FileNode:
 
         try:
             from scriber.native import is_native_available, require_native
+
             if is_native_available():
                 text = require_native().read_text(str(self.absolute))
             else:
@@ -154,7 +167,7 @@ class Candidate:
     role: str = "unknown"
 
 
-from scriber.graph.model import RelationKind, RelationEdge, RelationGraph, ModuleGraph
+from scriber.graph.model import RelationEdge, RelationGraph, ModuleGraph  # noqa: E402
 
 
 @dataclass(slots=True)
@@ -196,6 +209,7 @@ FileRole = Literal[
     "unknown",
 ]
 
+
 @dataclass(frozen=True, slots=True)
 class FileRef:
     path: Path
@@ -204,6 +218,7 @@ class FileRef:
     size_bytes: int
     token_estimate: int
     role: FileRole = "unknown"
+
 
 @dataclass(frozen=True, slots=True)
 class FileOutline:
@@ -217,6 +232,7 @@ class FileOutline:
     constants: list[str]
     notes: list[str]
     token_estimate: int
+
 
 @dataclass(slots=True)
 class PackItem:
@@ -234,6 +250,7 @@ class PackItem:
     item_id: str = ""
     utility: float = 0.0
     raw_score: float = 0.0
+
 
 @dataclass(slots=True)
 class LlmPack:

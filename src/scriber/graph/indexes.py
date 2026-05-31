@@ -20,18 +20,18 @@ class GraphIndexes:
     @classmethod
     def build(cls, files: dict[Path, FileNode]) -> GraphIndexes:
         indexes = cls()
-        
+
         for rel, node in files.items():
             indexes.by_dir.setdefault(rel.parent, []).append(node)
             indexes.by_stem.setdefault(rel.stem, []).append(node)
-            
-            clean_stem = re.sub(r'[^a-zA-Z0-9]', '', rel.stem).lower()
+
+            clean_stem = re.sub(r"[^a-zA-Z0-9]", "", rel.stem).lower()
             if clean_stem:
                 indexes.by_clean_stem.setdefault(clean_stem, []).append(node)
-                
+
             indexes.by_language.setdefault(node.language, []).append(node)
-            
-            # Simple indexing for .env and docs is done per analyzer as needed, 
+
+            # Simple indexing for .env and docs is done per analyzer as needed,
             # but we can initialize the dicts here.
-            
+
         return indexes

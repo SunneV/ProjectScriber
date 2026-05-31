@@ -25,6 +25,7 @@ RelationKind = Literal[
     "entrypoint_to_module",
 ]
 
+
 @dataclass(frozen=True, slots=True)
 class RelationEdge:
     source: Path
@@ -35,6 +36,7 @@ class RelationEdge:
     evidence: str | None = None
     line: int | None = None
     analyzer: str = "unknown"
+
 
 @dataclass(slots=True)
 class RelationGraph:
@@ -52,6 +54,7 @@ class RelationGraph:
         if edge.kind in {"import", "reexport"}:
             self.imports.setdefault(edge.source, set()).add(edge.target)
             self.imported_by.setdefault(edge.target, set()).add(edge.source)
+
 
 @dataclass(slots=True)
 class ModuleGraph(RelationGraph):

@@ -8,22 +8,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [2.1.0] - 2026-05-31
 
 ### Added
-- **🎯 AI-Native Navigation (P1)**: Implemented line-numbered code fences and symbol-level XML anchors (`<anchor id="...">`) for classes and functions in full mode, allowing AI to navigate and apply Search & Replace diffs flawlessly.
-- **🚀 Ultra-Focused Mode Optimization**: Focused mode (`scriber <path>`) now acts as a precise surgical tool, cutting out unnecessary contextual noise.
-- **🛡️ Support Files Pruning**: Support files (`pyproject.toml`, `README.md`, Dockerfiles) are no longer granted automatic `full` mode immunity when running focused scans. They now decay to tree mode unless explicitly targeted.
-- **🧪 Test File Quarantine**: Test modules are heavily penalized in focused mode, dropping out of full/excerpt context to keep the generated pack laser-focused on actual implementation logic.
+- **Frontend Graph Tracking**: Added dependency parsing support for modern frontend frameworks (`.vue`, `.svelte`, `.astro`), HTML templates, and CSS stylesheets within JS/TS graph construction.
+- **Packaging Profiles (`--profile`)**: Added `default`, `audit`, `debug`, `refactor`, and `docs` profiles to quickly bias the file scoring and inclusion criteria without manually tweaking config options.
+- **CLI Introspection**: Added `--explain` flag as an alias. Enhanced `--why` output to show estimated token cost, content mode, and omission reasons for any target file.
+- **Automated README Sync**: Added `scripts/sync_readme.py` tool to automatically sync CLI arguments, profiles documentation, and version tags across the `README.md`.
+- **AI-Native Navigation & Optimization**: Implemented XML anchors for symbols, aggressive test file quarantine, and support file pruning to keep focused mode clean and strictly token-capped.
+- **Version Alignment**: Synchronized Python and Rust crate versions. `scriber --version` now reports both Python and native API versions.
 
 ### Fixed
-- **🐛 Excerpt Fallback Bug**: Fixed a critical bug where `excerpt` files failed to render and completely dropped their token estimates, resulting in `_Excerpt unavailable_` placeholders. They now correctly fall back to outline AST structures and compute tokens accurately.
-- **⚖️ Graph Token Hard-Capping**: Re-engineered token budgeting with rigid distance-based hard caps in `ranker.py` (Max scores: 100/79/74/44 for Dist 0/1/2/3+ respectively). Focused mode is now reliably ~45% of the full project token size, completely eliminating distant `full` mode leaks.
+- **Cache Stability**: Fixed graph warm-cache edge generation and stale import cache validation (now strictly validating `mtime` and `size`).
+- **Resilience & Scanners**: Added pure-Python fallback for `read_text_lossy`, optimized scanner ordering (whitelist before binary check), and corrected the test role classifier to prevent false positives on files naturally named `tests.py`.
+- **Excerpt Fallback Bug**: Fixed rendering and token estimations for empty excerpt files; they now correctly fall back to outline AST structures or full content if budget allows.
 
 ## [2.0.0] - 2026-05-30
 
 ### Added
-- **⚡ Native Rust Acceleration (`scriber._native`)**: Full transition of filesystem scanning, high-performance file reading/writing, and binary classification to a compiled Rust extension built using Maturin and PyO3.
-- **🌳 Fast Parallel Scanner**: Re-engineered directory scanning utilizing the `WalkBuilder` from the `ignore` crate, fully respecting `.gitignore` rules with blazing fast native execution.
-- **🧪 Rigorous Verification & Equivalence Testing**: Comprehensive suite of regression and equivalence tests validating 100% exact matching behavior between Rust and Python scanner modules.
-- **📦 Multi-Platform Binary Wheels**: CI/CD integration using `PyO3/maturin-action` to compile and distribute native wheels across Linux, macOS, and Windows.
+- **Native Rust Acceleration (`scriber._native`)**: Full transition of filesystem scanning, high-performance file reading/writing, and binary classification to a compiled Rust extension built using Maturin and PyO3.
+- **Fast Parallel Scanner**: Re-engineered directory scanning utilizing the `WalkBuilder` from the `ignore` crate, fully respecting `.gitignore` rules with blazing fast native execution.
+- **Rigorous Verification & Equivalence Testing**: Comprehensive suite of regression and equivalence tests validating 100% exact matching behavior between Rust and Python scanner modules.
+- **Multi-Platform Binary Wheels**: CI/CD integration using `PyO3/maturin-action` to compile and distribute native wheels across Linux, macOS, and Windows.
 
 
 ## [1.1.2] - 2025-09-30
@@ -65,7 +68,7 @@ The CLI now falls back to simple text-based output if `rich` is not installed.
 
 ### Added
 - Configured a GitHub Actions pipeline for automated testing and releases.
-- `-v` and `--version` to scriber app 
+- `-v` and `--version` to scriber app
 - The `--config` flag now accepts a path to a `pyproject.toml` file, providing more flexibility for monorepo configurations.
 
 ### Fixed

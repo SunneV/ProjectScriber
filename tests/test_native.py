@@ -18,22 +18,22 @@ def test_native_read_write(tmp_path: Path) -> None:
     native = require_native()
     test_file = tmp_path / "test.txt"
     content = "Hello, native Rust world!\nWith some special characters: łóądźś\n"
-    
+
     native.write_text(str(test_file), content)
     assert test_file.exists()
-    
+
     read_back = native.read_text(str(test_file))
     assert read_back == content
 
 
 def test_native_binary_check(tmp_path: Path) -> None:
     native = require_native()
-    
+
     # Test text file
     txt_file = tmp_path / "normal.txt"
     txt_file.write_text("Hello world", encoding="utf-8")
     assert not native.is_probably_binary(str(txt_file))
-    
+
     # Test binary file
     bin_file = tmp_path / "binary.bin"
     bin_file.write_bytes(b"Hello\x00world")
@@ -47,19 +47,21 @@ def test_native_scan_matches_python_scan(tmp_path: Path) -> None:
     (tmp_path / "src" / "helper.py").write_text("import sys", encoding="utf-8")
     (tmp_path / "src" / "binary.dat").write_bytes(b"\x00\x01\x02")
     (tmp_path / "README.md").write_text("# Test Project", encoding="utf-8")
-    (tmp_path / "pyproject.toml").write_text("[tool.scriber]\nversion='2'", encoding="utf-8")
-    
+    (tmp_path / "pyproject.toml").write_text(
+        "[tool.scriber]\nversion='2'", encoding="utf-8"
+    )
+
     # Hidden dir and ignored patterns
     (tmp_path / ".git").mkdir()
     (tmp_path / ".git" / "config").write_text("git config", encoding="utf-8")
-    
+
     config = ScriberConfig(
         use_gitignore=True,
         code_patterns=["**/*.py"],
         support_patterns=["pyproject.toml", "README.md", "requirements.txt"],
         hard_ignore_patterns=[".git/**", "**/binary.dat"],
     )
-    
+
     # Create gitignore
     (tmp_path / ".gitignore").write_text("*.pyc\n", encoding="utf-8")
 
@@ -71,7 +73,7 @@ def test_native_scan_matches_python_scan(tmp_path: Path) -> None:
 
     for path, rust_node in rust_result.items():
         py_node = python_result[path]
-        
+
         # Verify fields match exactly
         assert rust_node.relative == py_node.relative
         assert rust_node.kind == py_node.kind
@@ -86,7 +88,9 @@ def test_native_no_support(tmp_path: Path) -> None:
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "main.py").write_text("print('hello')", encoding="utf-8")
     (tmp_path / "README.md").write_text("# Test Project", encoding="utf-8")
-    (tmp_path / "pyproject.toml").write_text("[tool.scriber]\nversion='2'", encoding="utf-8")
+    (tmp_path / "pyproject.toml").write_text(
+        "[tool.scriber]\nversion='2'", encoding="utf-8"
+    )
 
     config = ScriberConfig(
         support=False,
@@ -177,10 +181,11 @@ def test_native_graph_matches_python_graph_mixed_project(tmp_path: Path) -> None
     config = make_config()
 
     python_files = scan_python(tmp_path, config)
-    
+
     from scriber.graph.builder import build_graph as build_python_graph
+
     py_graph = build_python_graph(python_files, config)
-    
+
     native = require_native()
     native_files = native.scan_project(
         str(tmp_path),
@@ -191,23 +196,38 @@ def test_native_graph_matches_python_graph_mixed_project(tmp_path: Path) -> None
         config.support_content.full,
         config.support_content.tree_only,
         config.support_content.default,
-        config.support
+        config.support,
     )
     edges = native.build_relation_graph(
         str(tmp_path),
         native_files,
         config.python.source_roots,
-        config.python.module_init_files
+        config.python.module_init_files,
     )
 
     rs_imports = {}
     for edge in edges:
-        if edge.kind == "import" or edge.kind == "mod" or edge.kind == "use" or edge.kind == "include":
-            rs_imports.setdefault(Path(getattr(edge, "source")), set()).add(Path(edge.target))
-    
+        if (
+            edge.kind == "import"
+            or edge.kind == "mod"
+            or edge.kind == "use"
+            or edge.kind == "include"
+        ):
+            rs_imports.setdefault(Path(getattr(edge, "source")), set()).add(
+                Path(edge.target)
+            )
+
     for path, targets in py_graph.imports.items():
         file = python_files[path]
-        if file.language in {"python", "javascript", "typescript", "rust", "go", "c", "cpp"}:
+        if file.language in {
+            "python",
+            "javascript",
+            "typescript",
+            "rust",
+            "go",
+            "c",
+            "cpp",
+        }:
             rs_targets = rs_imports.get(path, set())
             assert rs_targets == targets
 
@@ -215,22 +235,26 @@ def test_native_graph_matches_python_graph_mixed_project(tmp_path: Path) -> None
 def test_native_scoring_matches_python_for_focused_pack(tmp_path: Path) -> None:
     make_mixed_project(tmp_path)
     config = make_config()
-    
+
     python_files = scan_python(tmp_path, config)
     from scriber.graph.builder import build_graph as build_python_graph
+
     py_graph = build_python_graph(python_files, config)
-    
+
     from scriber.engine.scorer import score_candidates as score_python
     from scriber.core.models import SeedPath
+
     seed = SeedPath(
         original=Path("src/main.py"),
         absolute=(tmp_path / "src/main.py").resolve(),
         relative=Path("src/main.py"),
         is_dir=False,
-        expanded_files=[Path("src/main.py")]
+        expanded_files=[Path("src/main.py")],
     )
-    py_candidates = score_python(files=python_files, seeds=[seed], graph=py_graph, config=config, mode="focused")
-    
+    py_candidates = score_python(
+        files=python_files, seeds=[seed], graph=py_graph, config=config, mode="focused"
+    )
+
     native = require_native()
     native_files = native.scan_project(
         str(tmp_path),
@@ -241,15 +265,15 @@ def test_native_scoring_matches_python_for_focused_pack(tmp_path: Path) -> None:
         config.support_content.full,
         config.support_content.tree_only,
         config.support_content.default,
-        config.support
+        config.support,
     )
     edges = native.build_relation_graph(
         str(tmp_path),
         native_files,
         config.python.source_roots,
-        config.python.module_init_files
+        config.python.module_init_files,
     )
-    
+
     scoring = config.modules_config.scoring
     opts = native.NativePackOptions(
         mode="focused",
@@ -282,17 +306,14 @@ def test_native_scoring_matches_python_for_focused_pack(tmp_path: Path) -> None:
         entrypoint_patterns=config.python.entrypoint_patterns,
         test_roots=config.python.test_roots,
     )
-    
+
     rs_candidates = native.score_candidates_native(
-        native_files,
-        ["src/main.py"],
-        edges,
-        opts
+        native_files, ["src/main.py"], edges, opts
     )
-    
+
     py_map = {c.file.relative.as_posix(): c for c in py_candidates}
     rs_map = {c.path: c for c in rs_candidates}
-    
+
     assert set(py_map.keys()) == set(rs_map.keys())
     for path, py_c in py_map.items():
         rs_c = rs_map[path]
@@ -309,12 +330,13 @@ def test_native_render_tree_matches_python() -> None:
         "pyproject.toml",
         "README.md",
     ]
-    
+
     from scriber.rendering.renderer import render_tree as render_python_tree
+
     py_tree = render_python_tree([Path(p) for p in paths])
-    
+
     rs_tree = native.render_tree(paths)
-    
+
     assert rs_tree.strip() == py_tree.strip()
 
 
@@ -325,14 +347,16 @@ def test_default_toml_and_lock_support(tmp_path: Path) -> None:
     # Create dummy files
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "main.py").write_text("print('hello')", encoding="utf-8")
-    (tmp_path / "pyproject.toml").write_text("[tool.scriber]\nversion='2'", encoding="utf-8")
+    (tmp_path / "pyproject.toml").write_text(
+        "[tool.scriber]\nversion='2'", encoding="utf-8"
+    )
     (tmp_path / "some_random_config.toml").write_text("a = 1", encoding="utf-8")
     (tmp_path / "some_random_lockfile.lock").write_text("lock", encoding="utf-8")
 
     # Load default config
     config = load_config(tmp_path / "pyproject.toml")
     config.use_gitignore = False
-    
+
     # Assert that **/*.toml and **/*.lock are in support patterns
     assert "**/*.toml" in config.support_patterns
     assert "**/*.toml" in config.support_content.full
@@ -363,7 +387,7 @@ def test_native_import_complex_python(tmp_path: Path) -> None:
     (tmp_path / "src" / "b.py").write_text("class B: pass", encoding="utf-8")
     (tmp_path / "src" / "c.py").write_text("class C: pass", encoding="utf-8")
     (tmp_path / "src" / "d.py").write_text("class D: pass", encoding="utf-8")
-    
+
     import_test_content = """
 import os, sys
 import math as m, json
@@ -375,7 +399,9 @@ from .b import (
 from .c import D
 """
     (tmp_path / "src" / "main.py").write_text(import_test_content, encoding="utf-8")
-    (tmp_path / "pyproject.toml").write_text("[tool.scriber]\nversion='2'", encoding="utf-8")
+    (tmp_path / "pyproject.toml").write_text(
+        "[tool.scriber]\nversion='2'", encoding="utf-8"
+    )
 
     config = ScriberConfig(
         use_gitignore=False,
@@ -384,8 +410,9 @@ from .c import D
     )
 
     from scriber.scanner.scan import scan_project
-    files = scan_project(tmp_path, config)
-    
+
+    scan_project(tmp_path, config)
+
     native = require_native()
     native_files = native.scan_project(
         str(tmp_path),
@@ -396,29 +423,22 @@ from .c import D
         config.support_content.full,
         config.support_content.tree_only,
         config.support_content.default,
-        config.support
+        config.support,
     )
     edges = native.build_relation_graph(
         str(tmp_path),
         native_files,
         config.python.source_roots,
-        config.python.module_init_files
+        config.python.module_init_files,
     )
 
     imports = {Path(getattr(edge, "source")): set() for edge in edges}
     for edge in edges:
         if edge.kind == "import":
             imports[Path(getattr(edge, "source"))].add(Path(edge.target))
-        
+
     main_path = Path("src/main.py")
     assert main_path in imports
-    
-    expected_imports = {
-        Path("src/a.py"),
-        Path("src/b.py"),
-        Path("src/c.py")
-    }
+
+    expected_imports = {Path("src/a.py"), Path("src/b.py"), Path("src/c.py")}
     assert imports[main_path] == expected_imports
-
-
-

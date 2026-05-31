@@ -1,14 +1,25 @@
 from __future__ import annotations
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from scriber.cache import ScriberCache
 
 from pathlib import Path
 
 from scriber.core.models import FileNode, ScriberConfig
 from scriber.graph.model import ModuleGraph, RelationEdge
-from scriber.graph.languages.python import build_module_map, parse_python_imports, resolve_import_record
-from scriber.scanner.files import read_text_lossy
+from scriber.graph.languages.python import (
+    build_module_map,
+    parse_python_imports,
+    resolve_import_record,
+)
 
 
-def build_graph(files: dict[Path, FileNode], config: ScriberConfig, cache: ScriberCache | None = None) -> ModuleGraph:
+def build_graph(
+    files: dict[Path, FileNode],
+    config: ScriberConfig,
+    cache: ScriberCache | None = None,
+) -> ModuleGraph:
     graph = ModuleGraph()
     if not files:
         return graph
@@ -23,16 +34,26 @@ def build_graph(files: dict[Path, FileNode], config: ScriberConfig, cache: Scrib
         dir_to_files.setdefault(node.absolute.parent, []).append(node)
 
     sample = next(iter(files.values()))
-    root = Path(sample.absolute.as_posix()[:len(sample.absolute.as_posix()) - len(sample.relative.as_posix())]).resolve()
+    root = Path(
+        sample.absolute.as_posix()[
+            : len(sample.absolute.as_posix()) - len(sample.relative.as_posix())
+        ]
+    ).resolve()
 
     if cache is None:
         from scriber.cache import ScriberCache
+
         cache = ScriberCache(config, root)
 
     module_to_path, path_to_module = build_module_map(files, config.python)
 
     for rel, file in files.items():
-        if file.kind != "code" or file.is_binary or file.language not in {"python", "javascript", "typescript", "rust", "go", "c", "cpp"}:
+        if (
+            file.kind != "code"
+            or file.is_binary
+            or file.language
+            not in {"python", "javascript", "typescript", "rust", "go", "c", "cpp"}
+        ):
             continue
 
         try:
@@ -44,12 +65,20 @@ def build_graph(files: dict[Path, FileNode], config: ScriberConfig, cache: Scrib
 
         cached_data = cache.get_file(rel, mtime_ns, size)
         if cached_data is not None:
-            cached_imports = cache.get_imports(rel)
+            cached_imports = cache.get_imports(rel, mtime_ns, size)
             if cached_imports is not None:
                 for target in cached_imports:
                     if target in files:
-                        graph.imports.setdefault(rel, set()).add(target)
-                        graph.imported_by.setdefault(target, set()).add(rel)
+                        graph.add_edge(
+                            RelationEdge(
+                                source=rel,
+                                target=target,
+                                kind="import",
+                                weight=1.0,
+                                confidence=0.98,
+                                analyzer=f"imports:{file.language}",
+                            )
+                        )
                 continue
 
         resolved_set = set()
@@ -74,7 +103,11 @@ def build_graph(files: dict[Path, FileNode], config: ScriberConfig, cache: Scrib
                         resolved_set.add(target)
 
         elif file.language in {"javascript", "typescript", "react"}:
-            from scriber.graph.languages.javascript import parse_javascript_imports, resolve_javascript_import
+            from scriber.graph.languages.javascript import (
+                parse_javascript_imports,
+                resolve_javascript_import,
+            )
+
             try:
                 source = file.read_text()
             except OSError:
@@ -87,7 +120,11 @@ def build_graph(files: dict[Path, FileNode], config: ScriberConfig, cache: Scrib
                     resolved_set.add(target)
 
         elif file.language == "rust":
-            from scriber.graph.languages.rust import parse_rust_imports, resolve_rust_import
+            from scriber.graph.languages.rust import (
+                parse_rust_imports,
+                resolve_rust_import,
+            )
+
             try:
                 source = file.read_text()
             except OSError:
@@ -101,6 +138,7 @@ def build_graph(files: dict[Path, FileNode], config: ScriberConfig, cache: Scrib
 
         elif file.language == "go":
             from scriber.graph.languages.go import parse_go_imports, resolve_go_import
+
             try:
                 source = file.read_text()
             except OSError:
@@ -113,7 +151,11 @@ def build_graph(files: dict[Path, FileNode], config: ScriberConfig, cache: Scrib
                     resolved_set.add(target)
 
         elif file.language in {"c", "cpp"}:
-            from scriber.graph.languages.cpp import parse_cpp_includes, resolve_cpp_include
+            from scriber.graph.languages.cpp import (
+                parse_cpp_includes,
+                resolve_cpp_include,
+            )
+
             try:
                 source = file.read_text()
             except OSError:
@@ -125,18 +167,17 @@ def build_graph(files: dict[Path, FileNode], config: ScriberConfig, cache: Scrib
                         continue
                     resolved_set.add(target)
 
-
-        from scriber.core.models import RelationEdge
-
         for target in resolved_set:
-            graph.add_edge(RelationEdge(
-                source=rel,
-                target=target,
-                kind="import",
-                weight=1.0,
-                confidence=0.98,
-                analyzer=f"imports:{file.language}",
-            ))
+            graph.add_edge(
+                RelationEdge(
+                    source=rel,
+                    target=target,
+                    kind="import",
+                    weight=1.0,
+                    confidence=0.98,
+                    analyzer=f"imports:{file.language}",
+                )
+            )
 
         cache.set_imports(rel, resolved_set)
 

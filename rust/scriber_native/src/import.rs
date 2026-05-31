@@ -355,7 +355,9 @@ pub fn build_import_graph(
                 let base_normalized = normalize_posix_path(&raw_base);
 
                 let mut resolved = false;
-                let extensions = vec!["", ".ts", ".tsx", ".js", ".jsx", ".d.ts"];
+                let extensions = vec![
+                    "", ".ts", ".tsx", ".js", ".jsx", ".d.ts", ".vue", ".svelte", ".astro", ".json",
+                ];
                 for ext in extensions {
                     let cand = if ext.is_empty() {
                         base_normalized.clone()
@@ -376,7 +378,15 @@ pub fn build_import_graph(
                 }
 
                 if !resolved {
-                    let index_names = vec!["index.ts", "index.tsx", "index.js", "index.jsx"];
+                    let index_names = vec![
+                        "index.ts",
+                        "index.tsx",
+                        "index.js",
+                        "index.jsx",
+                        "index.vue",
+                        "index.svelte",
+                        "index.astro",
+                    ];
                     for idx in index_names {
                         let cand = format!("{}/{}", base_normalized, idx);
                         if let Some(target) = absolute_to_file.get(&cand) {

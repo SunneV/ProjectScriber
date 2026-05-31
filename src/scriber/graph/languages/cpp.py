@@ -19,20 +19,18 @@ def parse_cpp_includes(source: str) -> list[str]:
 
 
 def resolve_cpp_include(
-    include_spec: str,
-    current_file: FileNode,
-    absolute_to_file: dict[Path, FileNode]
+    include_spec: str, current_file: FileNode, absolute_to_file: dict[Path, FileNode]
 ) -> set[Path]:
     """Resolve a C/C++ include specifier to a project file path."""
     resolved = set()
     parent = current_file.absolute.parent
-    
+
     # 1. Try resolving relative to current file's directory
     try:
         candidate = (parent / include_spec).resolve(strict=False)
     except Exception:
         candidate = parent / include_spec
-        
+
     node = absolute_to_file.get(candidate)
     if node and not node.is_binary:
         resolved.add(node.relative)

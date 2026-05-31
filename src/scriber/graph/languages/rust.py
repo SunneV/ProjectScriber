@@ -5,8 +5,8 @@ from pathlib import Path
 from scriber.core.models import FileNode
 
 
-MOD_RE = re.compile(r'\bmod\s+(\w+)\s*;')
-USE_RE = re.compile(r'\buse\s+([^;]+)\s*;')
+MOD_RE = re.compile(r"\bmod\s+(\w+)\s*;")
+USE_RE = re.compile(r"\buse\s+([^;]+)\s*;")
 
 
 def parse_rust_imports(source: str) -> list[tuple[str, str]]:
@@ -28,15 +28,14 @@ def parse_rust_imports(source: str) -> list[tuple[str, str]]:
     return imports
 
 
-def resolve_rust_import(kind: str, spec: str, current_file: FileNode, absolute_to_file: dict[Path, FileNode]) -> set[Path]:
+def resolve_rust_import(
+    kind: str, spec: str, current_file: FileNode, absolute_to_file: dict[Path, FileNode]
+) -> set[Path]:
     resolved = set()
     parent = current_file.absolute.parent
 
     if kind == "mod":
-        candidates = [
-            parent / f"{spec}.rs",
-            parent / spec / "mod.rs"
-        ]
+        candidates = [parent / f"{spec}.rs", parent / spec / "mod.rs"]
         for cand in candidates:
             node = absolute_to_file.get(cand)
             if node:
@@ -65,7 +64,7 @@ def resolve_rust_import(kind: str, spec: str, current_file: FileNode, absolute_t
                 module_path = crate_root / Path(*sub_parts[:end])
                 candidates = [
                     module_path.with_name(module_path.name + ".rs"),
-                    module_path / "mod.rs"
+                    module_path / "mod.rs",
                 ]
                 for cand in candidates:
                     node = absolute_to_file.get(cand)
@@ -80,7 +79,7 @@ def resolve_rust_import(kind: str, spec: str, current_file: FileNode, absolute_t
                 module_path = crate_root / Path(*sub_parts[:end])
                 candidates = [
                     module_path.with_name(module_path.name + ".rs"),
-                    module_path / "mod.rs"
+                    module_path / "mod.rs",
                 ]
                 for cand in candidates:
                     node = absolute_to_file.get(cand)
@@ -95,7 +94,7 @@ def resolve_rust_import(kind: str, spec: str, current_file: FileNode, absolute_t
                 module_path = crate_root / Path(*sub_parts[:end])
                 candidates = [
                     module_path.with_name(module_path.name + ".rs"),
-                    module_path / "mod.rs"
+                    module_path / "mod.rs",
                 ]
                 for cand in candidates:
                     node = absolute_to_file.get(cand)

@@ -9,13 +9,13 @@
     <a href="https://pypi.org/project/project-scriber/"><img src="https://img.shields.io/pypi/v/project-scriber?style=flat" alt="PyPI Version"></a>
 </p>
 
-An intelligent tool to map, analyze, and compile project source code into a single, context-optimized text file for Large Language Models (LLMs). **Version 2.0** brings advanced dependency graph analysis, strict whitelist-based file inclusion, zero-dependency lightweight execution, and progress tracking!
+An intelligent tool to map, analyze, and compile project source code into a single, context-optimized text file for Large Language Models (LLMs). **Version 2** brings advanced dependency graph analysis, strict whitelist-based file inclusion, zero-dependency lightweight execution, and progress tracking!
 
 -----
 
 ## 📖 Table of Contents
 
-- [🤔 Why ProjectScriber 2.0?](#-why-projectscriber-20)
+- [🤔 Why ProjectScriber?](#-why-projectscriber)
 - [✨ Key Features](#-key-features)
 - [🚀 Quick Start](#-quick-start)
 - [💾 Installation](#-installation)
@@ -25,14 +25,14 @@ An intelligent tool to map, analyze, and compile project source code into a sing
 
 -----
 
-## 🤔 Why ProjectScriber 2.0?
+## 🤔 Why ProjectScriber?
 
 When working with Large Language Models, providing the full context of a codebase is crucial for getting accurate analysis, documentation, or refactoring suggestions. However, blindly pasting an entire project wastes tokens and introduces noise.
 
-**ProjectScriber 2.0** automates context building using a **Whitelist-First** philosophy and an **Intelligent Scoring Engine**. It analyzes your codebase's dependency graph (e.g., Python imports), determines which files are most relevant to the code you're working on, and bundles them into a single, clean markdown file, strictly respecting your token budgets and file-type configurations.
+**ProjectScriber** automates context building using a **Whitelist-First** philosophy and an **Intelligent Scoring Engine**. It analyzes your codebase's dependency graph (e.g., Python imports), determines which files are most relevant to the code you're working on, and bundles them into a single, clean markdown file, strictly respecting your token budgets and file-type configurations.
 
 <p align="center">
-    📁 <b>Your Codebase</b> → 📦 <b>ProjectScriber 2.0</b> → 📋 <b>LLM-Ready Context</b>
+    📁 <b>Your Codebase</b> → 📦 <b>ProjectScriber</b> → 📋 <b>LLM-Ready Context</b>
 </p>
 
 -----
@@ -123,32 +123,78 @@ uv pip install project-scriber
 
 ### CLI Options
 
+<!-- BEGIN SCRIBER:CLI_OPTIONS -->
 | Option | Description |
 |:---|:---|
-| `paths` | Project file/folder paths used as seeds. Defaults to current directory `.`. |
-| `--config [path]` | Path to `pyproject.toml`. Its parent directory becomes the project root. |
-| `--path-base [base]`| Base for relative paths: `project` (default) or `cwd`. |
-| `--format [md, txt]` | Output format. Defaults to `md` (Markdown). |
-| `--output [file]` | Output file path. Use `-` for stdout. |
-| `--dry-run`       | Show pack summary without writing the output file. |
-| `--open`          | Open the generated file in the default editor. |
-| `--validate-config`| Validate the `[tool.scriber]` configuration and exit. |
-| `--only-tree` | Render only the scored tree/map, without any file contents. |
-| `--[no-]modules` | Enable/Disable automatic related module selection (dependency graph scanning). |
-| `--[no-]support` | Enable/Disable support files (like `.env.example`, `.github/workflows`). |
-| `--support-content` | Override support file content policy (`full`, `auto`, `tree_only`). |
+| `paths` | Project file/folder paths used as seeds. Defaults to current directory. |
+| `--profile` | Preset configuration profile. |
+| `--config` | Path to pyproject.toml. Its parent directory becomes the project root. |
+| `--path-base` | Base directory for relative paths when --config is used. |
+| `--format` | Output format. |
+| `--output` | Output file path, relative to project root unless absolute. Use '-' for stdout. |
+| `--only-tree` | Render only scored tree/map, without file contents. |
+| `--modules` | Enable automatic related module selection. |
+| `--no-modules` | Disable automatic related module selection. |
+| `--support` | Enable support files. |
+| `--no-support` | Disable support files. |
+| `--support-content` | Override default support file content policy. |
 | `--max-files` | Maximum number of files in the pack. |
-| `--max-tokens` | Approximate token budget using char-based estimation. `0` disables budget. |
-| `--min-score` | Minimum relevance score (0-100) for non-seed files to be included. |
-| `--init` | Append a default `[tool.scriber]` config to `pyproject.toml` and exit. |
-| `--force` | Force overwrite of the config block when used with `--init`. |
-| `--version` | Show program's version number and exit. |
+| `--max-tokens` | Approximate token budget for included file contents. 0 disables budget. |
+| `--min-score` | Minimum score for non-seed files. |
+| `--init` | Append a default [tool.scriber] config to pyproject.toml and exit. |
+| `--force` | Allow --init to append even if [tool.scriber] already exists. |
+| `--project` | Force project snapshot mode. |
+| `--explain, --explain-selection` | Explain reason for file selection in detail. |
+| `--explain-graph` | Print relation graph statistics and relations. |
+| `--why` | Print exactly which rules/edges pulled the specified file into the pack. |
+| `--graph-json` | Export the RelationGraph as a JSON file to the specified path. |
+| `--validate-config` | Validate pyproject.toml scriber config. |
+| `--dry-run` | Perform a dry run without saving the pack file. |
+| `--open` | Open the output file automatically after creation. |
+| `--timings` | Show execution timings for each phase. |
+| `--version` | Show version information and exit. |
+<!-- END SCRIBER:CLI_OPTIONS -->
+
+<!-- BEGIN SCRIBER:PROFILES -->
+### Profiles
+
+ProjectScriber comes with several preset profiles to quickly bias the file scoring and inclusion criteria:
+
+| Profile | Description |
+|:---|:---|
+| `default` | Standard scoring behavior. |
+| `audit` | Boosts tests, config files, CI environments, and dependency files. Assumes full support content inclusion. |
+| `debug` | Boosts direct/reverse dependencies, tests, runtime support, and files close to the seed path. |
+| `refactor` | Boosts files within the same package, related tests, and direct dependencies. |
+| `docs` | Heavily boosts documentation files while suppressing test and code file scores. Assumes tree_only support content by default. |
+<!-- END SCRIBER:PROFILES -->
+
+-----
+
+## 🛠️ IDE Integrations
+
+### PyCharm / IntelliJ IDEA (External Tools)
+
+You can integrate ProjectScriber directly into PyCharm's right-click context menu to quickly generate LLM context packs for any selected file or folder!
+
+1. Open **Settings / Preferences** ➔ **Tools** ➔ **External Tools**.
+2. Click the **`+`** button to add a new tool.
+3. Configure it as follows:
+
+* **Name:** `Scriber`
+* **Group:** `External Tools`
+* **Description:** `Runs ProjectScriber on the selected directory and copies output to clipboard`
+* **Program:** `scriber` *(or the absolute path to your `scriber.exe` e.g., `C:\Tools\Python\Python313\Scripts\scriber.exe`)*
+* **Arguments:** `"$FilePath$" --config $ProjectFileDir$/pyproject.toml`
+* **Working directory:** `$ProjectFileDir$`
+
+Now, you can simply right-click any file or directory in your Project tree, select **External Tools** ➔ **Scriber**, and the context pack will be generated instantly based on your project configuration!
 
 -----
 
 ## ⚙️ Configuration
 
-ProjectScriber 2.0 configures itself through the standard `pyproject.toml` using the `[tool.scriber]` table.
+ProjectScriber 2.1.0 configures itself through the standard `pyproject.toml` using the `[tool.scriber]` table.
 Generate the default block using:
 
 ```shell
@@ -217,7 +263,7 @@ patterns = [
 ```
 
 ### Whitelist Policy
-ProjectScriber 2.0 uses a strict **whitelist** approach:
+ProjectScriber 2.1.0 uses a strict **whitelist** approach:
 1. Files must match either a `code_pattern` or a `support_pattern` to be considered.
 2. Unrecognized extensions and binary files are automatically excluded, keeping your LLM context safe from binary garbage.
 3. Lock files are included in the tree by default, but their contents are omitted to save tokens.

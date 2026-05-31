@@ -64,6 +64,14 @@ pub struct NativePackOptions {
     pub documentation_score: i32,
     #[pyo3(get, set)]
     pub shared_dependency_bonus: i32,
+    #[pyo3(get, set)]
+    pub entrypoint_file_score: i32,
+    #[pyo3(get, set)]
+    pub code_file_score: i32,
+    #[pyo3(get, set)]
+    pub test_file_score: i32,
+    #[pyo3(get, set)]
+    pub other_file_score: i32,
 
     // Module flags
     #[pyo3(get, set)]
@@ -116,6 +124,10 @@ impl NativePackOptions {
         runtime_support_score = 50,
         documentation_score = 45,
         shared_dependency_bonus = 10,
+        entrypoint_file_score = 90,
+        code_file_score = 80,
+        test_file_score = 60,
+        other_file_score = 40,
         modules_enabled = true,
         include_direct_dependencies = true,
         include_reverse_dependencies = true,
@@ -148,6 +160,10 @@ impl NativePackOptions {
         runtime_support_score: i32,
         documentation_score: i32,
         shared_dependency_bonus: i32,
+        entrypoint_file_score: i32,
+        code_file_score: i32,
+        test_file_score: i32,
+        other_file_score: i32,
         modules_enabled: bool,
         include_direct_dependencies: bool,
         include_reverse_dependencies: bool,
@@ -179,6 +195,10 @@ impl NativePackOptions {
             runtime_support_score,
             documentation_score,
             shared_dependency_bonus,
+            entrypoint_file_score,
+            code_file_score,
+            test_file_score,
+            other_file_score,
             modules_enabled,
             include_direct_dependencies,
             include_reverse_dependencies,
@@ -311,9 +331,15 @@ fn is_test_file(rel: &str, test_roots: &[String]) -> bool {
         .unwrap_or(std::ffi::OsStr::new(""))
         .to_string_lossy()
         .to_lowercase();
-    for part in p.components().filter_map(|c| c.as_os_str().to_str()) {
-        if test_roots.contains(&part.to_string()) {
-            return true;
+    let components: Vec<_> = p
+        .components()
+        .filter_map(|c| c.as_os_str().to_str())
+        .collect();
+    if components.len() > 1 {
+        for part in &components[0..components.len() - 1] {
+            if test_roots.contains(&part.to_string()) {
+                return true;
+            }
         }
     }
     name.starts_with("test_") || name.ends_with("_test.py") || name.ends_with(".test.py")
@@ -543,13 +569,13 @@ pub fn score_candidates_native(
         for (rel, c) in &mut mapped_files {
             if c.info.kind == "code" {
                 if matches_entrypoint(rel, &options.entrypoint_patterns) {
-                    c.score = 90;
+                    c.score = options.entrypoint_file_score;
                     add_reason(c, "entrypoint", "entrypoint file", None);
                 } else if is_test_file(rel, &options.test_roots) {
-                    c.score = 60;
+                    c.score = options.test_file_score;
                     add_reason(c, "test_file", "test file", None);
                 } else {
-                    c.score = 80;
+                    c.score = options.code_file_score;
                     add_reason(c, "code_file", "code file", None);
                 }
             } else if c.info.kind == "support" && options.support_enabled {

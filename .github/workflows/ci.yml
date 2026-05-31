@@ -6,8 +6,53 @@ on:
   pull_request:
 
 jobs:
+  lint:
+    name: Lint & Format
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # Needed for auto-commit
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          cache-dependency-glob: "pyproject.toml"
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --all-extras
+
+      - name: Run pre-commit hooks
+        id: precommit
+        run: uv run pre-commit run --all-files
+
+      - name: Check README sync
+        run: uv run python scripts/sync_readme.py --check
+
+      - name: Auto-commit formatting fixes
+        if: failure()
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "style: auto-fix formatting and linting issues"
+          commit_options: "--no-verify"
+          # Fail the job even if we commit so the user knows they need to pull
+
+      - name: Fail if pre-commit failed
+        if: steps.precommit.outcome == 'failure'
+        run: exit 1
+
   test:
     name: ${{ matrix.os }} / py${{ matrix.python-version }}
+    needs: lint
     runs-on: ${{ matrix.os }}
 
     strategy:
@@ -40,12 +85,6 @@ jobs:
 
       - name: Check native import
         run: uv run python -c "import scriber._native; print('native ok')"
-
-      - name: Rust format check
-        run: cargo fmt --check
-
-      - name: Rust clippy
-        run: cargo clippy --all-targets -- -D warnings
 
       - name: Rust tests
         run: cargo test

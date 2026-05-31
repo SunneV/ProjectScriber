@@ -3,6 +3,7 @@ import ast
 from scriber.core.models import FileNode, FileOutline
 from scriber.outline.base import Outliner
 
+
 class PythonOutliner(Outliner):
     def outline(self, file: FileNode, content: str) -> FileOutline:
         classes = []
@@ -24,7 +25,7 @@ class PythonOutliner(Outliner):
                         imports.append(f"{module}.{alias.name}")
         except SyntaxError:
             pass
-            
+
         return FileOutline(
             path=file.relative,
             language="python",
@@ -35,5 +36,5 @@ class PythonOutliner(Outliner):
             functions=functions,
             constants=[],
             notes=[],
-            token_estimate=len(classes)*5 + len(functions)*3 + len(imports)*2
+            token_estimate=len(classes) * 5 + len(functions) * 3 + len(imports) * 2,
         )

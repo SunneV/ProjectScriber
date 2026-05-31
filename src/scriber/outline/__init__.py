@@ -8,6 +8,7 @@ _outliners: dict[str, Outliner] = {
 }
 _generic = GenericOutliner()
 
+
 def generate_outline(file: FileNode, content: str) -> FileOutline:
     outliner = _outliners.get(file.language, _generic)
     return outliner.outline(file, content)

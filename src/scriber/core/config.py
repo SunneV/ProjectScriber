@@ -9,7 +9,14 @@ try:  # pragma: no cover - exercised on Python < 3.11 only
 except ModuleNotFoundError:  # pragma: no cover
     import tomli as tomllib  # type: ignore[no-redef]
 
-from .models import CacheConfig, ModuleConfig, PythonConfig, ScriberConfig, SupportContentConfig, TokenConfig
+from .models import (
+    CacheConfig,
+    ModuleConfig,
+    PythonConfig,
+    ScriberConfig,
+    SupportContentConfig,
+    TokenConfig,
+)
 
 DEFAULT_CODE_PATTERNS = [
     "**/*.py",
@@ -26,6 +33,15 @@ DEFAULT_CODE_PATTERNS = [
     "**/*.cpp",
     "**/*.h",
     "**/*.hpp",
+    "**/*.html",
+    "**/*.htm",
+    "**/*.vue",
+    "**/*.svelte",
+    "**/*.astro",
+    "**/*.css",
+    "**/*.scss",
+    "**/*.sass",
+    "**/*.less",
 ]
 
 DEFAULT_SUPPORT_PATTERNS = [
@@ -81,6 +97,7 @@ DEFAULT_SUPPORT_PATTERNS = [
     "pnpm-lock.yaml",
     "yarn.lock",
     "**/*.svg",
+    "**/*.json",
 ]
 
 DEFAULT_SUPPORT_FULL = [
@@ -104,6 +121,7 @@ DEFAULT_SUPPORT_FULL = [
     "README.md",
     "Cargo.toml",
     "go.mod",
+    "**/*.json",
 ]
 
 DEFAULT_SUPPORT_TREE_ONLY = [
@@ -228,7 +246,9 @@ def load_config(config_path: Path) -> ScriberConfig:
     config.max_tokens = int(data.get("max_tokens", config.max_tokens))
     config.min_score = int(data.get("min_score", config.min_score))
     config.path_style = str(data.get("path_style", config.path_style))
-    config.allow_external_paths = bool(data.get("allow_external_paths", config.allow_external_paths))
+    config.allow_external_paths = bool(
+        data.get("allow_external_paths", config.allow_external_paths)
+    )
 
     code_files = data.get("code_files", {})
     if isinstance(code_files, dict) and isinstance(code_files.get("patterns"), list):
@@ -243,9 +263,19 @@ def load_config(config_path: Path) -> ScriberConfig:
         if isinstance(content, dict):
             config.support_content = SupportContentConfig(
                 default=content.get("default", config.support_content.default),
-                full=[str(item) for item in content.get("full", config.support_content.full)],
-                tree_only=[str(item) for item in content.get("tree_only", config.support_content.tree_only)],
-                auto_max_bytes=int(content.get("auto_max_bytes", config.support_content.auto_max_bytes)),
+                full=[
+                    str(item)
+                    for item in content.get("full", config.support_content.full)
+                ],
+                tree_only=[
+                    str(item)
+                    for item in content.get(
+                        "tree_only", config.support_content.tree_only
+                    )
+                ],
+                auto_max_bytes=int(
+                    content.get("auto_max_bytes", config.support_content.auto_max_bytes)
+                ),
             )
     if not config.support_content.full:
         config.support_content.full = list(DEFAULT_SUPPORT_FULL)
@@ -265,14 +295,46 @@ def load_config(config_path: Path) -> ScriberConfig:
         config.modules_config = ModuleConfig(
             enabled=bool(modules.get("enabled", config.modules_config.enabled)),
             depth=int(modules.get("depth", config.modules_config.depth)),
-            include_direct_dependencies=bool(modules.get("include_direct_dependencies", config.modules_config.include_direct_dependencies)),
-            include_reverse_dependencies=bool(modules.get("include_reverse_dependencies", config.modules_config.include_reverse_dependencies)),
-            include_tests=bool(modules.get("include_tests", config.modules_config.include_tests)),
-            include_same_package=bool(modules.get("include_same_package", config.modules_config.include_same_package)),
-            include_parent_entrypoints=bool(modules.get("include_parent_entrypoints", config.modules_config.include_parent_entrypoints)),
-            include_project_configs=bool(modules.get("include_project_configs", config.modules_config.include_project_configs)),
-            content_min_score=int(modules.get("content_min_score", config.modules_config.content_min_score)),
-            tree_min_score=int(modules.get("tree_min_score", config.modules_config.tree_min_score)),
+            include_direct_dependencies=bool(
+                modules.get(
+                    "include_direct_dependencies",
+                    config.modules_config.include_direct_dependencies,
+                )
+            ),
+            include_reverse_dependencies=bool(
+                modules.get(
+                    "include_reverse_dependencies",
+                    config.modules_config.include_reverse_dependencies,
+                )
+            ),
+            include_tests=bool(
+                modules.get("include_tests", config.modules_config.include_tests)
+            ),
+            include_same_package=bool(
+                modules.get(
+                    "include_same_package", config.modules_config.include_same_package
+                )
+            ),
+            include_parent_entrypoints=bool(
+                modules.get(
+                    "include_parent_entrypoints",
+                    config.modules_config.include_parent_entrypoints,
+                )
+            ),
+            include_project_configs=bool(
+                modules.get(
+                    "include_project_configs",
+                    config.modules_config.include_project_configs,
+                )
+            ),
+            content_min_score=int(
+                modules.get(
+                    "content_min_score", config.modules_config.content_min_score
+                )
+            ),
+            tree_min_score=int(
+                modules.get("tree_min_score", config.modules_config.tree_min_score)
+            ),
             scoring=scoring,
         )
         config.modules = config.modules_config.enabled
@@ -280,17 +342,34 @@ def load_config(config_path: Path) -> ScriberConfig:
     python = data.get("python", {})
     if isinstance(python, dict):
         config.python = PythonConfig(
-            source_roots=[str(item) for item in python.get("source_roots", config.python.source_roots)],
-            test_roots=[str(item) for item in python.get("test_roots", config.python.test_roots)],
-            module_init_files=[str(item) for item in python.get("module_init_files", config.python.module_init_files)],
-            entrypoint_patterns=[str(item) for item in python.get("entrypoint_patterns", config.python.entrypoint_patterns)],
+            source_roots=[
+                str(item)
+                for item in python.get("source_roots", config.python.source_roots)
+            ],
+            test_roots=[
+                str(item) for item in python.get("test_roots", config.python.test_roots)
+            ],
+            module_init_files=[
+                str(item)
+                for item in python.get(
+                    "module_init_files", config.python.module_init_files
+                )
+            ],
+            entrypoint_patterns=[
+                str(item)
+                for item in python.get(
+                    "entrypoint_patterns", config.python.entrypoint_patterns
+                )
+            ],
         )
 
     tokens = data.get("tokens", {})
     if isinstance(tokens, dict):
         config.tokens = TokenConfig(
             estimator=str(tokens.get("estimator", config.tokens.estimator)),
-            chars_per_token=int(tokens.get("chars_per_token", config.tokens.chars_per_token)),
+            chars_per_token=int(
+                tokens.get("chars_per_token", config.tokens.chars_per_token)
+            ),
         )
 
     cache = data.get("cache", {})
@@ -348,25 +427,31 @@ class ConfigIssue:
 
 def validate_raw_config(raw_data: dict[str, Any]) -> list[ConfigIssue]:
     issues: list[ConfigIssue] = []
-    
+
     # 1. check if raw_data contains tool.scriber
     tool = raw_data.get("tool", {}) if isinstance(raw_data, dict) else {}
     if not isinstance(tool, dict):
         issues.append(ConfigIssue("error", "[tool] in pyproject.toml must be a table."))
         return issues
-        
+
     data = tool.get("scriber", {}) if isinstance(tool, dict) else {}
     if not data:
-        issues.append(ConfigIssue("warning", "[tool.scriber] section is missing or empty."))
+        issues.append(
+            ConfigIssue("warning", "[tool.scriber] section is missing or empty.")
+        )
         return issues
-        
+
     if not isinstance(data, dict):
         issues.append(ConfigIssue("error", "[tool.scriber] must be a table."))
         return issues
 
     # 2. check output format
     if "format" in data and data["format"] not in {"md", "txt"}:
-        issues.append(ConfigIssue("error", f"Invalid format: '{data['format']}'. Must be 'md' or 'txt'."))
+        issues.append(
+            ConfigIssue(
+                "error", f"Invalid format: '{data['format']}'. Must be 'md' or 'txt'."
+            )
+        )
 
     # 4. check support_content default
     support_files = data.get("support_files", {})
@@ -375,7 +460,12 @@ def validate_raw_config(raw_data: dict[str, Any]) -> list[ConfigIssue]:
         if isinstance(content, dict) and "default" in content:
             val = content["default"]
             if val not in {"full", "auto", "tree_only"}:
-                issues.append(ConfigIssue("error", f"Invalid support_files.content.default: '{val}'. Must be 'full', 'auto', or 'tree_only'."))
+                issues.append(
+                    ConfigIssue(
+                        "error",
+                        f"Invalid support_files.content.default: '{val}'. Must be 'full', 'auto', or 'tree_only'.",
+                    )
+                )
 
     # 5. check numeric values >= 0
     for field in ["max_files", "max_tokens", "min_score"]:
@@ -383,20 +473,37 @@ def validate_raw_config(raw_data: dict[str, Any]) -> list[ConfigIssue]:
             try:
                 val = int(data[field])
                 if val < 0:
-                    issues.append(ConfigIssue("error", f"{field} must be a number >= 0. Got: {val}"))
+                    issues.append(
+                        ConfigIssue(
+                            "error", f"{field} must be a number >= 0. Got: {val}"
+                        )
+                    )
             except (ValueError, TypeError):
-                issues.append(ConfigIssue("error", f"{field} must be an integer. Got: {data[field]}"))
+                issues.append(
+                    ConfigIssue(
+                        "error", f"{field} must be an integer. Got: {data[field]}"
+                    )
+                )
 
     # 6. check patterns are list of strings
     def check_pattern_list(parent_dict: dict[str, Any], path_name: str) -> None:
         if "patterns" in parent_dict:
             patterns = parent_dict["patterns"]
             if not isinstance(patterns, list):
-                issues.append(ConfigIssue("error", f"{path_name}.patterns must be a list of strings."))
+                issues.append(
+                    ConfigIssue(
+                        "error", f"{path_name}.patterns must be a list of strings."
+                    )
+                )
             else:
                 for item in patterns:
                     if not isinstance(item, str):
-                        issues.append(ConfigIssue("error", f"Pattern in {path_name}.patterns must be a string. Got: {item}"))
+                        issues.append(
+                            ConfigIssue(
+                                "error",
+                                f"Pattern in {path_name}.patterns must be a string. Got: {item}",
+                            )
+                        )
 
     code_files = data.get("code_files", {})
     if isinstance(code_files, dict):
@@ -406,7 +513,7 @@ def validate_raw_config(raw_data: dict[str, Any]) -> list[ConfigIssue]:
 
     if isinstance(support_files, dict):
         check_pattern_list(support_files, "support_files")
-        
+
         # Check support_files.content full and tree_only patterns
         content = support_files.get("content", {})
         if isinstance(content, dict):
@@ -414,11 +521,21 @@ def validate_raw_config(raw_data: dict[str, Any]) -> list[ConfigIssue]:
                 if field in content:
                     patterns = content[field]
                     if not isinstance(patterns, list):
-                        issues.append(ConfigIssue("error", f"support_files.content.{field} must be a list of strings."))
+                        issues.append(
+                            ConfigIssue(
+                                "error",
+                                f"support_files.content.{field} must be a list of strings.",
+                            )
+                        )
                     else:
                         for item in patterns:
                             if not isinstance(item, str):
-                                issues.append(ConfigIssue("error", f"Pattern in support_files.content.{field} must be a string. Got: {item}"))
+                                issues.append(
+                                    ConfigIssue(
+                                        "error",
+                                        f"Pattern in support_files.content.{field} must be a string. Got: {item}",
+                                    )
+                                )
     elif "support_files" in data:
         issues.append(ConfigIssue("error", "support_files must be a table."))
 
@@ -430,18 +547,29 @@ def validate_raw_config(raw_data: dict[str, Any]) -> list[ConfigIssue]:
 
     return issues
 
-def validate_config(config: ScriberConfig, raw_data: dict[str, Any], config_path: Path | None = None) -> list[ConfigIssue]:
+
+def validate_config(
+    config: ScriberConfig, raw_data: dict[str, Any], config_path: Path | None = None
+) -> list[ConfigIssue]:
     issues = validate_raw_config(raw_data)
-    
+
     # Check output path is not a directory
     output_path = config.output
     if not output_path.is_absolute() and config_path:
         output_path = config_path.parent / output_path
-        
+
     if output_path.suffix == "" and not str(output_path).endswith("-"):
-        issues.append(ConfigIssue("warning", f"Output path '{output_path}' has no extension. Is it a directory?"))
+        issues.append(
+            ConfigIssue(
+                "warning",
+                f"Output path '{output_path}' has no extension. Is it a directory?",
+            )
+        )
     if output_path.exists() and output_path.is_dir():
-        issues.append(ConfigIssue("error", f"Output path '{output_path}' points to an existing directory."))
+        issues.append(
+            ConfigIssue(
+                "error", f"Output path '{output_path}' points to an existing directory."
+            )
+        )
 
     return issues
-

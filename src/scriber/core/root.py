@@ -16,7 +16,9 @@ def resolve_config_path(paths: list[str], explicit_config: str | None = None) ->
         if not config.exists():
             raise ScriberError(f"Config not found: {config}")
         if config.name != "pyproject.toml":
-            raise ScriberError("Scriber 2.0 expects --config to point to pyproject.toml")
+            raise ScriberError(
+                "Scriber 2.0 expects --config to point to pyproject.toml"
+            )
         return config
 
     starts: list[Path] = []
@@ -44,7 +46,9 @@ def resolve_config_path(paths: list[str], explicit_config: str | None = None) ->
             if candidate.exists():
                 return candidate.resolve()
 
-    raise ScriberError("No pyproject.toml found. Run `scriber init` or pass `--config /path/to/pyproject.toml`.")
+    raise ScriberError(
+        "No pyproject.toml found. Run `scriber init` or pass `--config /path/to/pyproject.toml`."
+    )
 
 
 def project_root_from_config(config_path: Path) -> Path:
