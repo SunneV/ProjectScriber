@@ -2,8 +2,11 @@ from __future__ import annotations
 from typing import Iterable, Any
 from pathlib import Path
 import re
+import logging
 from scriber.core.models import FileNode, ScriberConfig
 from scriber.graph.indexes import GraphIndexes
+
+logger = logging.getLogger("scriber.analyzers.env")
 
 
 class EnvAnalyzer:
@@ -29,8 +32,8 @@ class EnvAnalyzer:
                     file_envs[rel] = keys
                     for k in keys:
                         indexes.env_key_to_files.setdefault(k, []).append(node)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("env: failed to read %s: %s", rel, exc)
 
         for key, nodes in indexes.env_key_to_files.items():
             for i, n1 in enumerate(nodes):

@@ -1,10 +1,14 @@
 use pyo3::prelude::*;
 
+#[cfg(feature = "treesitter")]
+mod ast;
 mod import;
 mod io;
 mod render;
 mod scan;
 mod score;
+#[cfg(feature = "bpe")]
+mod tokenize;
 
 #[pyfunction]
 #[pyo3(name = "read_text")]
@@ -90,5 +94,8 @@ fn _native(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(render::render_tree, m)?)?;
     m.add_function(wrap_pyfunction!(native_api_version, m)?)?;
     m.add_function(wrap_pyfunction!(build_info, m)?)?;
+    // BPE tokenizer (only when compiled with the `bpe` feature).
+    #[cfg(feature = "bpe")]
+    m.add_function(wrap_pyfunction!(tokenize::count_tokens_bpe, m)?)?;
     Ok(())
 }

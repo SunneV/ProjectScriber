@@ -5,6 +5,50 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [2.2.0] - 2026-06-30
+
+A major upgrade driven by three rounds of code audit. Adds an interactive dependency-graph visualization, real graph algorithms, a parallel native scanner, three opt-in build-time features (BPE tokenizer, tree-sitter AST, graph snapshot), and numerous correctness/performance fixes. All new Cargo features are **off by default** and degrade gracefully when absent.
+
+### Added
+- **Interactive dependency-graph visualization**: `render_graph_html()` produces a self-contained, dependency-free HTML file with a Canvas force-directed layout. Auto-emitted to `.scriber/graph.html` next to every pack (`emit_graph_html = true`, suppress with `--no-graph-html`). Features: per-component gravity (uncorrelated languages form separate islands), radial/hierarchical init from dependency depth, hub emphasis, weight/confidence-aware springs, minimap, search, inertial pan, keyboard nav, hover tooltips, in-pack highlighting, and embedded Scriber branding.
+- **Graph export formats**: `--graph-dot` (Graphviz), `--graph-mermaid` (GitHub/Notion native), `--graph-html`, alongside the existing `--graph-json`. All render every relation kind, not just imports.
+- **Graph algorithms** (`engine/graph_algorithms.py`): Tarjan SCC for import-cycle detection, Kahn topological layering, weighted-degree centrality, and PageRank. Wired into `--explain-graph` (cycles, top hubs, top influential, architectural layers) and the ranker (centrality bonus).
+- **Symbol-level relations** (`type_reference`, `inherits`): emitted by the Python AST symbol extractor on the Python builder path, and by tree-sitter on the native path (when the `treesitter` feature is enabled).
+- **Java import extraction**: `parse_java_imports` / `resolve_java_import` resolve `com.example.Foo` to `src/main/java`/`src/test/java`.
+- **BPE tokenizer** (Cargo feature `bpe`): exact offline token counting via `tiktoken-rs` (cl100k_base / o200k_base). `TokenConfig.encoding` selects the encoding; `has_bpe_tokenizer()` probes availability; falls back to the calibrated estimator when absent.
+- **tree-sitter AST backend** (Cargo feature `treesitter`): walks the Python AST to emit `type_reference`/`inherits` edges on the native path where they were previously dead. Pluggable per-grammar.
+- **Graph snapshot + restore** (`graph/snapshot.py`): persists the whole RelationGraph to `.scriber/cache/graph.json`, restored on the next run when no file changed. Closes the native "write-only" cache defect.
+- **Configurable cache LRU** (`cache.max_entries`, default 50 000, `0` = unlimited): replaces the hard 1000-entry cap.
+- **Real budget enforcement**: every content mode consumes the budget with calibrated weights (`MODE_TOKEN_WEIGHT`); allocator respects a true `hard_limit`.
+- **LLM profiles in CLI**: `gpt`, `focused-gpt`, `full` exposed in `--profile` choices.
+- **Calibrated token estimation**: `estimator="auto"` selects a per-language chars-per-token ratio instead of flat `len//4`.
+- **JS/TS bare-specifier alias resolution**: reads `tsconfig.json` paths + `package.json` imports/exports.
+- **Collapse fix**: the native `build_relation_graph` now preserves the real per-language edge kind (import / mod / use / include) instead of hardcoding `"import"`.
+- **Parallel native directory walk** + **parallel analyzers**: `WalkBuilder::build_parallel()` and `ThreadPoolExecutor`.
+- **Binary detection fast-path + cache**: known extensions skip the read syscall.
+
+### Changed
+- `max_files`/`max_tokens` defaults aligned with the loader (`0` = unlimited).
+- Token estimation unified: the ranker uses the shared `estimate_tokens_from_bytes()` helper.
+- Config-refs/docs analyzers match basenames on word boundaries (no more `api.py`-in-`rapid` false positives).
+- Robust project-root detection via `os.path.commonpath` fallback.
+- Memoized glob matching via `lru_cache`.
+- Real centrality replaces the `centrality_bonus = 0` placeholder.
+- Redundant scoring pass skipped for `gpt`/`focused-gpt`/`full` profiles.
+- `render_graph_html()` serializes edge `confidence`; springs use `linkStrength = base × confidence`.
+
+### Fixed
+- Cache load/write errors logged instead of silently swallowed.
+- Bare `except: pass` in analyzers replaced with logged warnings.
+- `RelationGraph.add_edge` deduplicates by `(source, target, kind)`.
+- Minimap viewport rect computed from the main canvas dimensions (not the minimap's own).
+- `__TITLE__` placeholder rendering (case mismatch fixed).
+
+### Removed
+- Unused `_walk_neighbors` (scorer), `relations_v1.jsonl` path, dead `BudgetPolicy` ratio fields, dead `GraphNode` class, dead `"react"` language case.
+- graph.html single global center force (root cause of uncorrelated components collapsing).
+
+
 ## [2.1.0] - 2026-05-31
 
 ### Added

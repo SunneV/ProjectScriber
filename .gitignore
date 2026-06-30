@@ -47,6 +47,7 @@ htmlcov/
 scriber_pack.md
 *.scriber_pack.md
 context.md
+audit*.html
 
 # IDEs and Editors
 .idea/

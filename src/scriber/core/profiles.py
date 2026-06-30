@@ -5,7 +5,16 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from scriber.core.models import ScriberConfig
 
-PROFILE_CHOICES = ("default", "audit", "debug", "refactor", "docs")
+PROFILE_CHOICES = (
+    "default",
+    "audit",
+    "debug",
+    "refactor",
+    "docs",
+    "gpt",
+    "focused-gpt",
+    "full",
+)
 
 
 def apply_profile(config: ScriberConfig, profile: str) -> ScriberConfig:
@@ -42,5 +51,13 @@ def apply_profile(config: ScriberConfig, profile: str) -> ScriberConfig:
         scoring["test_file"] = 10
         scoring["code_file"] = 30
         cfg.support_content.default = "tree_only"
+
+    # LLM-optimized profiles (audit finding #19) — these previously triggered
+    # the LlmPack path in packer/pack.py but were absent from --profile choices,
+    # making them undiscoverable from the CLI.
+    elif profile in {"gpt", "focused-gpt", "full"}:
+        # No scoring overrides needed: these profiles are handled downstream
+        # by rank_context + render_llm_report. Exposed here for discoverability.
+        pass
 
     return cfg

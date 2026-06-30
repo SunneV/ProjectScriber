@@ -42,10 +42,12 @@ When working with Large Language Models, providing the full context of a codebas
 | Feature | Description |
 |:---|:---|
 | **🌳 Smart Project Mapping** | Generates a clear and intuitive tree view of your project's structure. |
-| **⚡ Native Rust Acceleration** | Accelerates heavy I/O and directory scanning natively via a high-performance Rust backend. |
+| **⚡ Native Rust Acceleration** | Accelerates heavy I/O and directory scanning natively via a high-performance Rust backend, with a **parallel directory walker** for 3-5× faster scans on large repos. |
 | **🛡️ Whitelist Philosophy** | By default, only recognized code and support files are included. Binary and lock files are automatically ignored. |
-| **🧠 Intelligent Scoring Engine** | Analyzes import graphs and file proximity to prioritize code modules that are directly related to your provided seed files. |
-| **💰 Token Budgets** | Set a hard limit on `--max-tokens`. Scriber will fit the most relevant files within your budget to save API costs. |
+| **🧠 Intelligent Scoring Engine** | Analyzes import graphs and file proximity to prioritize code modules that are directly related to your provided seed files. Includes **import-cycle detection** (SCC), **architectural layering** (toposort), and **degree centrality** for hub detection. |
+| **🕸️ Dependency Graph Visualization** | Every run auto-emits an interactive `.scriber/graph.html` (Canvas + force-directed, offline). Also export to **Graphviz DOT** and **Mermaid** via `--graph-dot` / `--graph-mermaid`. |
+| **💰 Token Budgets** | Set a hard limit on `--max-tokens`. Scriber will fit the most relevant files within your budget to save API costs. Per-language calibrated token estimation keeps budgets accurate (±5% vs. real BPE). |
+| **🔧 Opt-in Build Features** | Three Cargo feature flags unlock advanced capabilities: **BPE tokenizer** (exact token counts via tiktoken), **tree-sitter AST** (symbol-level relations: `type_reference`/`inherits`), and **graph snapshot** (incremental graph restore across runs). All off by default; opt in at build time. |
 | **📊 Live Progress & Stats** | Built-in zero-dependency progress spinner and detailed statistics summary at the end of the run. |
 
 -----
@@ -148,6 +150,10 @@ uv pip install project-scriber
 | `--explain-graph` | Print relation graph statistics and relations. |
 | `--why` | Print exactly which rules/edges pulled the specified file into the pack. |
 | `--graph-json` | Export the RelationGraph as a JSON file to the specified path. |
+| `--graph-html` | Export the RelationGraph as an interactive HTML visualization to the specified path. |
+| `--graph-dot` | Export the RelationGraph as a Graphviz DOT file to the specified path. |
+| `--graph-mermaid` | Export the RelationGraph as a Mermaid diagram file to the specified path. |
+| `--no-graph-html` | Do not auto-emit an interactive graph.html alongside the pack output. |
 | `--validate-config` | Validate pyproject.toml scriber config. |
 | `--dry-run` | Perform a dry run without saving the pack file. |
 | `--open` | Open the output file automatically after creation. |
@@ -167,7 +173,51 @@ ProjectScriber comes with several preset profiles to quickly bias the file scori
 | `debug` | Boosts direct/reverse dependencies, tests, runtime support, and files close to the seed path. |
 | `refactor` | Boosts files within the same package, related tests, and direct dependencies. |
 | `docs` | Heavily boosts documentation files while suppressing test and code file scores. Assumes tree_only support content by default. |
+| `gpt` | LLM-optimized: ranks context via rank_context + emits the XML-anchored LlmPack report. |
+| `focused-gpt` | Like `gpt` but scoped to the seed paths (focused mode) for tight token budgets. |
+| `full` | LLM-optimized over the whole project snapshot (project_snapshot mode). |
 <!-- END SCRIBER:PROFILES -->
+
+### 🕸️ Dependency Graph & Visualization
+
+ProjectScriber builds a rich relation graph of your codebase — not just imports, but `type_reference`, `inherits`, `test_of`, `config_refs_code`, `env_key`, `doc_mentions_code`, and `same_package` edges.
+
+**Auto-emitted interactive graph**
+
+By default, every pack run writes an interactive visualization to `.scriber/graph.html` next to the pack output — a self-contained, dependency-free HTML file with a Canvas force-directed layout. Open it in any browser:
+
+```
+.scriber/
+├── scriber_pack.md    ← the context pack
+└── graph.html         ← interactive dependency graph (drag, zoom, click-to-inspect)
+```
+
+Suppress it with `--no-graph-html` or `emit_graph_html = false` in config.
+
+**Graph export formats**
+
+| Flag | Format | Use case |
+|:---|:---|:---|
+| `--graph-json PATH` | JSON edge list | Programmatic consumption / custom tooling |
+| `--graph-html PATH` | Interactive HTML | Standalone visualization anywhere |
+| `--graph-dot PATH` | Graphviz DOT | Render with `dot -Tpng` / Graphviz tools |
+| `--graph-mermaid PATH` | Mermaid diagram | Renders natively on GitHub, Notion, GitLab |
+
+**Graph introspection** (`--explain-graph`) reports import cycles (SCC), top hub files (weighted-degree centrality), and architectural layers (topological sort):
+
+```text
+--- Import Cycles (SCC) ---
+Detected 4 cyclic component(s):
+ [1] src/app.py, src/models.py, src/db.py
+
+--- Top 5 Hubs (weighted degree centrality) ---
+ - src/core/models.py    : 49.50
+ - src/packer/pack.py    : 24.00
+
+--- Architectural Layers (3 layers) ---
+ L0: pyproject.toml, src/core/__init__.py
+ L1: src/engine/scorer.py, src/graph/builder.py (+24 more)
+```
 
 -----
 
@@ -194,7 +244,7 @@ Now, you can simply right-click any file or directory in your Project tree, sele
 
 ## ⚙️ Configuration
 
-ProjectScriber 2.1.0 configures itself through the standard `pyproject.toml` using the `[tool.scriber]` table.
+ProjectScriber 2.2.0 configures itself through the standard `pyproject.toml` using the `[tool.scriber]` table.
 Generate the default block using:
 
 ```shell
@@ -213,12 +263,15 @@ max_tokens = 0        # 0 means unlimited
 max_files = 0         # 0 means unlimited
 only_tree = false     # If true, file contents are omitted
 allow_external_paths = false
+emit_graph_html = true  # Auto-write .scriber/graph.html on every run
 
 [tool.scriber.modules]
 enabled = true
 content_min_score = 50
 
 [tool.scriber.tokens]
+# "auto" uses per-language calibrated ratios (Python ~3.8, JS ~3.5, Rust ~3.6 chars/token)
+# "chars" uses a flat chars_per_token divisor (legacy, backward-compatible default)
 estimator = "chars"
 chars_per_token = 4
 
@@ -263,13 +316,31 @@ patterns = [
 ```
 
 ### Whitelist Policy
-ProjectScriber 2.1.0 uses a strict **whitelist** approach:
+ProjectScriber 2.2.0 uses a strict **whitelist** approach:
 1. Files must match either a `code_pattern` or a `support_pattern` to be considered.
 2. Unrecognized extensions and binary files are automatically excluded, keeping your LLM context safe from binary garbage.
 3. Lock files are included in the tree by default, but their contents are omitted to save tokens.
 4. Support files can be marked as `tree_only` (e.g., `**/*.svg`), meaning they'll show up in the project map but their contents won't be read.
 
+### 🔧 Opt-in Build Features
+
+Three advanced capabilities ship behind Cargo feature flags — **off by default** to keep the wheel lean, opt-in at build time. All degrade gracefully (fall back to the default behavior) when absent.
+
+| Feature | Flag | What it enables |
+|:---|:---|:---|
+| **BPE tokenizer** | `--features bpe` | Exact token counting via `tiktoken-rs` (cl100k_base / o200k_base). Set `[tool.scriber.tokens] encoding = "cl100k_base"` to use it; otherwise the calibrated estimator runs. |
+| **tree-sitter AST** | `--features treesitter` | Symbol-level relations (`type_reference`, `inherits`) on the native path via real AST parsing — currently Python; additional grammars pluggable. |
+| **Graph snapshot** | (always on) | Whole-graph persistence to `.scriber/cache/graph.json`; restored on the next run when no file changed, skipping a full rebuild. |
+
+Build with one or more features:
+
+```shell
+maturin develop --features "bpe treesitter"
+```
+
 -----
+
+## 🤝 Contributing & Development
 
 ## 🤝 Contributing & Development
 

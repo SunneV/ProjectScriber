@@ -4,8 +4,8 @@ build-backend = "maturin"
 
 [project]
 name = "project-scriber"
-version = "2.1.0"
-description = "Scriber 2.0: build intelligent code packs from one or more project paths."
+version = "2.2.0"
+description = "Scriber: build intelligent code packs from one or more project paths."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }

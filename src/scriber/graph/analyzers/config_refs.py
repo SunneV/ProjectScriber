@@ -1,8 +1,32 @@
 from __future__ import annotations
 from typing import Iterable, Any
 from pathlib import Path
+import logging
+import re
 from scriber.core.models import FileNode, ScriberConfig
 from scriber.graph.indexes import GraphIndexes
+
+logger = logging.getLogger("scriber.analyzers.config_refs")
+
+
+def _matches_whole_word(haystack: str, needle: str) -> bool:
+    """Whole-word match (audit finding #22).
+
+    Previously a naive substring check was used, so e.g. ``api.py`` matched
+    inside ``rapid`` and ``mapping.py`` matched almost anything. We now require
+    a word boundary on each side for the basename, while keeping the full
+    relative path as a verbatim substring (paths contain ``/`` delimiters and
+    are unambiguous).
+    """
+    if "/" in needle or "\\" in needle:
+        return needle in haystack
+    try:
+        return (
+            re.search(r"(?<![\w./-])" + re.escape(needle) + r"(?![\w])", haystack)
+            is not None
+        )
+    except re.error:
+        return needle in haystack
 
 
 def is_config_file(f: FileNode) -> bool:
@@ -33,10 +57,14 @@ class ConfigRefsAnalyzer:
                     content = node.absolute.read_text(encoding="utf-8", errors="ignore")
                     for crel, cnode in files.items():
                         if cnode.kind == "code":
-                            if crel.as_posix() in content or (
+                            posix = crel.as_posix()
+                            # Whole-word match (audit #22): path stays verbatim,
+                            # basename requires word boundaries to avoid false
+                            # positives like "api.py" inside "rapid".
+                            if _matches_whole_word(content, posix) or (
                                 len(crel.name) > 4
                                 and crel.name != "__init__.py"
-                                and crel.name in content
+                                and _matches_whole_word(content, crel.name)
                             ):
                                 edges.append(
                                     edge_cls(
@@ -50,6 +78,6 @@ class ConfigRefsAnalyzer:
                                         analyzer="config_refs:indexed",
                                     )
                                 )
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.warning("config_refs: failed to read %s: %s", rel, exc)
         return edges

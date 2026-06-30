@@ -150,7 +150,7 @@ def _decide_content(
     except OSError as exc:
         return False, None, f"read error: {exc}", 0
 
-    tokens = estimate_tokens(content, config.tokens)
+    tokens = estimate_tokens(content, config.tokens, language=file.language)
     if budget_left is not None and tokens > budget_left and not is_seed:
         return False, None, "token budget exceeded", 0
     return True, content, None, tokens
@@ -253,7 +253,14 @@ def _scan_files(paths, root, config, path_base, progress_callback):
 
 
 def _build_graph_and_score(
-    mode, files, seeds, native_files, root, config, progress_callback
+    mode,
+    files,
+    seeds,
+    native_files,
+    root,
+    config,
+    progress_callback,
+    skip_scoring=False,
 ):
     from time import perf_counter
 
@@ -281,43 +288,113 @@ def _build_graph_and_score(
 
         from scriber.graph.analyzers import generate_cheap_relations
 
-        edges.extend(
-            generate_cheap_relations(files, native.NativeRelationEdge, is_native=True)
-        )
-
         from scriber.cache import ScriberCache
 
         cache = ScriberCache(config, root)
 
         from scriber.core.models import ModuleGraph, RelationEdge
+        from scriber.graph.snapshot import (
+            build_snapshot,
+            changed_files,
+            deserialize_graph,
+        )
 
-        graph = ModuleGraph()
-        for edge in edges:
-            from_path = Path(getattr(edge, "source"))
-            to_path = Path(edge.target)
-            py_edge = RelationEdge(
-                source=from_path,
-                target=to_path,
-                kind=edge.kind,
-                weight=edge.weight,
-                confidence=edge.confidence,
-                evidence=edge.evidence,
-                line=edge.line,
-                analyzer=edge.analyzer,
+        # Build current file signatures for snapshot validation (audit feature 2).
+        current_sigs: dict[str, tuple[int, int]] = {}
+        for rel, node in files.items():
+            try:
+                st = node.absolute.stat()
+                current_sigs[rel.as_posix()] = (st.st_mtime_ns, st.st_size)
+            except OSError:
+                current_sigs[rel.as_posix()] = (0, node.size_bytes)
+
+        # Try to restore the whole graph from a snapshot to avoid a full rebuild.
+        # This closes the "native path is write-only" defect (audit finding #2):
+        # when no file changed since the snapshot was written, deserialize it.
+        snapshot = cache.load_graph_snapshot()
+        restored = False
+        if (
+            snapshot
+            and snapshot.get("config_hash") == cache.config_hash
+            and snapshot.get("file_signatures")
+        ):
+            ch = changed_files(snapshot, current_sigs)
+            if not ch:
+                graph = deserialize_graph(snapshot)
+                # Re-derive cheap relations for the restored graph (cheap + keeps
+                # analyzers current even if their logic changed without a file change).
+                cheap = generate_cheap_relations(
+                    files, native.NativeRelationEdge, is_native=True
+                )
+                for edge in cheap:
+                    graph.add_edge(
+                        RelationEdge(
+                            source=Path(getattr(edge, "source")),
+                            target=Path(edge.target),
+                            kind=edge.kind,
+                            weight=edge.weight,
+                            confidence=edge.confidence,
+                            evidence=edge.evidence,
+                            line=edge.line,
+                            analyzer=edge.analyzer,
+                        )
+                    )
+                restored = True
+
+        if not restored:
+            edges = native.build_relation_graph(
+                str(root),
+                native_files,
+                config.python.source_roots,
+                config.python.module_init_files,
             )
-            graph.add_edge(py_edge)
-            if py_edge.kind in {"import", "reexport"}:
-                cache.add_import_edge(from_path, to_path)
+            edges.extend(
+                generate_cheap_relations(
+                    files, native.NativeRelationEdge, is_native=True
+                )
+            )
+
+            graph = ModuleGraph()
+            for edge in edges:
+                from_path = Path(getattr(edge, "source"))
+                to_path = Path(edge.target)
+                py_edge = RelationEdge(
+                    source=from_path,
+                    target=to_path,
+                    kind=edge.kind,
+                    weight=edge.weight,
+                    confidence=edge.confidence,
+                    evidence=edge.evidence,
+                    line=edge.line,
+                    analyzer=edge.analyzer,
+                )
+                graph.add_edge(py_edge)
+                if py_edge.kind in {"import", "reexport"}:
+                    cache.add_import_edge(from_path, to_path)
+
+            # Persist the rebuilt graph as a snapshot for next run (audit feature 2).
+            cache.save_graph_snapshot(
+                build_snapshot(graph, cache.config_hash, current_sigs)
+            )
 
         cache.save(set(files.keys()))
 
-        stats["graph_edges_built"] = len(edges)
-        stats["graph_source"] = "native"
+        stats["graph_edges_built"] = len(graph.edges)
+        stats["graph_source"] = "native-snapshot" if restored else "native"
+        stats["graph_restored_from_snapshot"] = restored
         stats["graph_cache_reads"] = cache.reads
         stats["graph_cache_hits"] = cache.hits
         stats["graph_cache_writes"] = cache.writes
 
         timings["graph_build"] = perf_counter() - t_graph
+
+        # Audit finding #4: skip the redundant native scoring pass when the
+        # caller will re-rank via rank_context (gpt/focused-gpt/full profiles).
+        # The previous flow scored here, then discarded the result and re-scored
+        # from scratch in rank_context — pure duplicated work.
+        if skip_scoring:
+            stats["scoring_skipped"] = True
+            return [], graph, timings, stats
 
         t_score = perf_counter()
         if progress_callback:
@@ -405,6 +482,11 @@ def _build_graph_and_score(
 
         timings["graph_build"] = perf_counter() - t_graph
 
+        # Audit #4: same skip in the Python fallback path.
+        if skip_scoring:
+            stats["scoring_skipped"] = True
+            return [], graph, timings, stats
+
         t_score = perf_counter()
         if progress_callback:
             progress_callback("Ocenianie zaleznosci...")
@@ -468,7 +550,14 @@ def build_pack(
         mode = "focused"
 
     candidates, graph, sub_timings, stats = _build_graph_and_score(
-        mode, files, seeds, native_files, root, config, progress_callback
+        mode,
+        files,
+        seeds,
+        native_files,
+        root,
+        config,
+        progress_callback,
+        skip_scoring=profile in {"gpt", "focused-gpt", "full"},
     )
 
     if profile in {"gpt", "focused-gpt", "full"}:
@@ -590,6 +679,10 @@ def build_and_write_pack(
     paths: list[str] | None = None, **kwargs
 ) -> tuple[Path | None, ScriberPack | LlmPack]:
     explain_selection = kwargs.pop("explain_selection", False)
+    # ``emit_graph_html`` is a write-time concern (it controls whether an
+    # interactive graph.html is written next to the pack output), so pop it
+    # before forwarding the rest of the kwargs to build_pack.
+    emit_graph_html = kwargs.pop("emit_graph_html", None)
     pack = build_pack(paths, **kwargs)
     config_path = resolve_config_path(paths or ["."], kwargs.get("config_path"))
     config = load_config(config_path)
@@ -604,6 +697,7 @@ def build_and_write_pack(
         max_tokens=kwargs.get("max_tokens"),
         min_score=kwargs.get("min_score"),
         support_content=kwargs.get("support_content"),
+        emit_graph_html=emit_graph_html,
     )
     progress = kwargs.get("progress_callback")
     if progress:
@@ -641,5 +735,46 @@ def build_and_write_pack(
             output.write_text(rendered, encoding="utf-8")
     except Exception:
         output.write_text(rendered, encoding="utf-8")
+
+    # Auto-emit the interactive graph visualization alongside the pack. The
+    # HTML lands in the same directory as the pack output (e.g.
+    # ``.scriber/graph.html``) so it is discoverable next to the generated
+    # context. Disabled via ``emit_graph_html = false`` or ``--no-graph-html``.
+    if config.emit_graph_html and str(output) != "-":
+        try:
+            from scriber.rendering.graph_html import render_graph_html
+
+            # Highlight the files that actually made it into the pack so the
+            # visualization distinguishes included nodes from the full graph.
+            included = getattr(pack, "included_paths", None)
+            if included is None:
+                items = getattr(pack, "items", [])
+                included = {
+                    item.file.relative
+                    for item in items
+                    if getattr(getattr(item, "file", None), "relative", None)
+                }
+            graph_html = render_graph_html(
+                pack.graph,
+                included_paths=set(included) if included else None,
+                assets_dir=getattr(pack, "project_root", None)
+                and pack.project_root / "assets",
+            )
+            graph_path = output.parent / "graph.html"
+            try:
+                from scriber.native import is_native_available, require_native
+
+                if is_native_available():
+                    require_native().write_text(str(graph_path), graph_html)
+                else:
+                    graph_path.write_text(graph_html, encoding="utf-8")
+            except Exception:
+                graph_path.write_text(graph_html, encoding="utf-8")
+        except Exception as exc:
+            import logging
+
+            logging.getLogger("scriber.packer").warning(
+                "graph.html emission failed: %s", exc
+            )
 
     return output, pack

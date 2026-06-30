@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import fnmatch
+from functools import lru_cache
 from pathlib import PurePosixPath
 
 
@@ -8,22 +9,15 @@ def normalize_rel(value: str) -> str:
     return value.replace("\\", "/").strip("/")
 
 
-def match_pattern(path: str | PurePosixPath, pattern: str) -> bool:
-    """Match a project-relative POSIX path against a pragmatic glob pattern.
+@lru_cache(maxsize=4096)
+def _match_normalized(rel: str, pat: str) -> bool:
+    """Match an already-normalized path against a normalized pattern.
 
-    This intentionally stays dependency-free. It is not a full gitwildmatch
-    implementation, but it handles the common patterns used in pyproject config:
-    `*.py`, `**/*.py`, `dir/**`, `dir/`, exact file paths and basename patterns.
+    Memoized (audit finding #7): the previous implementation invoked up to 4
+    ``fnmatch`` calls plus ``PurePosixPath.match`` per (path, pattern) pair with
+    no caching, making classification O(N·P·k). Caching on the normalized
+    (rel, pat) tuple collapses repeated lookups for the same pattern list.
     """
-
-    rel = normalize_rel(str(path))
-    pat = pattern.replace("\\", "/").strip()
-    if not pat:
-        return False
-    if pat.startswith("/"):
-        pat = pat[1:]
-    pat = pat.strip("/") if pat.endswith("/") else pat
-
     if rel == pat:
         return True
 
@@ -47,6 +41,23 @@ def match_pattern(path: str | PurePosixPath, pattern: str) -> bool:
         return PurePosixPath(rel).match(pat)
     except ValueError:
         return False
+
+
+def match_pattern(path: str | PurePosixPath, pattern: str) -> bool:
+    """Match a project-relative POSIX path against a pragmatic glob pattern.
+
+    This intentionally stays dependency-free. It is not a full gitwildmatch
+    implementation, but it handles the common patterns used in pyproject config:
+    `*.py`, `**/*.py`, `dir/**`, `dir/`, exact file paths and basename patterns.
+    """
+    rel = normalize_rel(str(path))
+    pat = pattern.replace("\\", "/").strip()
+    if not pat:
+        return False
+    if pat.startswith("/"):
+        pat = pat[1:]
+    pat = pat.strip("/") if pat.endswith("/") else pat
+    return _match_normalized(rel, pat)
 
 
 def matches_any(path: str | PurePosixPath, patterns: list[str]) -> bool:
