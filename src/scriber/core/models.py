@@ -77,12 +77,16 @@ class SupportContentConfig:
 class TokenConfig:
     estimator: str = "chars"
     chars_per_token: int = 4
+    # When set (e.g. "cl100k_base" / "o200k_base") and the native BPE tokenizer
+    # is available, estimate_tokens() returns an EXACT count (audit feature 3).
+    encoding: str | None = None
 
 
 @dataclass(slots=True)
 class CacheConfig:
     enabled: bool = True
     dir: str = ".scriber/cache"
+    max_entries: int = 50_000
 
 
 @dataclass(slots=True)
@@ -94,11 +98,17 @@ class ScriberConfig:
     modules: bool = True
     support: bool = True
     use_gitignore: bool = True
-    max_files: int = 60
-    max_tokens: int = 100_000
+    # 0 means unlimited (matches DEFAULT_CONFIG_BLOCK). Audit finding #20:
+    # previously dataclass defaults (60/100000) diverged from loader/--init
+    # output (0/0), making behavior depend on presence of a pyproject config.
+    max_files: int = 0
+    max_tokens: int = 0
     min_score: int = 45
     path_style: str = "project-relative"
     allow_external_paths: bool = False
+    # When True, build_and_write_pack also emits an interactive graph.html
+    # visualization next to the pack output (see render_graph_html).
+    emit_graph_html: bool = True
     code_patterns: list[str] = field(default_factory=list)
     support_patterns: list[str] = field(default_factory=list)
     hard_ignore_patterns: list[str] = field(default_factory=list)

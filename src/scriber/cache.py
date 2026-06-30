@@ -3,11 +3,14 @@ from __future__ import annotations
 import sys
 import json
 import hashlib
+import logging
 from pathlib import Path
 from typing import Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from scriber.core.models import ScriberConfig
+
+logger = logging.getLogger("scriber.cache")
 
 
 def get_config_hash(config: ScriberConfig) -> str:
@@ -39,7 +42,9 @@ class ScriberCache:
         self.cache_dir = self.project_root / config.cache.dir
         self.files_cache_path = self.cache_dir / "files.json"
         self.imports_cache_path = self.cache_dir / "imports_v2.json"
-        self.relations_cache_path = self.cache_dir / "relations_v1.jsonl"
+        self.graph_snapshot_path = self.cache_dir / "graph.json"
+        # Configurable LRU cap (audit finding #3). 0 = unlimited.
+        self.max_entries = max(0, int(getattr(config.cache, "max_entries", 50_000)))
         self.config_hash = get_config_hash(config)
         self.python_version = f"{sys.version_info.major}.{sys.version_info.minor}"
 
@@ -62,9 +67,8 @@ class ScriberCache:
             if self.imports_cache_path.exists():
                 with self.imports_cache_path.open("r", encoding="utf-8") as f:
                     self.imports_data = json.load(f)
-            # relations_v1.jsonl will be append-only or rewritten on save, we don't load it entirely into memory for now
-        except Exception:
-            # Silently fallback to empty cache on read errors
+        except Exception as exc:
+            logger.warning("Cache load failed, starting with empty cache: %s", exc)
             self.files_data = {}
             self.imports_data = {}
 
@@ -162,6 +166,29 @@ class ScriberCache:
                 self.imports_data[key].setdefault("targets", []).append(target_str)
                 self.imports_data[key]["targets"].sort()
 
+    def load_graph_snapshot(self) -> dict | None:
+        """Load a persisted graph snapshot, or None if missing/invalid (audit feature 2)."""
+        if not self.enabled:
+            return None
+        try:
+            if self.graph_snapshot_path.exists():
+                with self.graph_snapshot_path.open("r", encoding="utf-8") as f:
+                    return json.load(f)
+        except Exception as exc:
+            logger.warning("Graph snapshot load failed: %s", exc)
+        return None
+
+    def save_graph_snapshot(self, snapshot: dict) -> None:
+        """Persist a graph snapshot to disk (audit feature 2)."""
+        if not self.enabled:
+            return
+        try:
+            self.cache_dir.mkdir(parents=True, exist_ok=True)
+            with self.graph_snapshot_path.open("w", encoding="utf-8") as f:
+                json.dump(snapshot, f)
+        except Exception as exc:
+            logger.warning("Graph snapshot write failed: %s", exc)
+
     def save(self, active_files: set[Path] | None = None) -> None:
         if not self.enabled:
             return
@@ -180,14 +207,15 @@ class ScriberCache:
                     k: v for k, v in self.imports_data.items() if k in active_keys
                 }
 
-            # 2. Enforce absolute limit of max 1000 entries to prevent infinite growth
-            if len(self.files_data) > 1000:
-                # Remove oldest keys
+            # 2. Enforce configurable LRU cap to prevent unbounded growth.
+            #    max_entries == 0 means unlimited. Eviction is by oldest mtime_ns
+            #    (LRU proxy) across files_data; imports_data trimmed to match.
+            if self.max_entries > 0 and len(self.files_data) > self.max_entries:
                 sorted_keys = sorted(
                     self.files_data.keys(),
                     key=lambda k: self.files_data[k].get("mtime_ns", 0),
                 )
-                to_remove = sorted_keys[: len(sorted_keys) - 1000]
+                to_remove = sorted_keys[: len(sorted_keys) - self.max_entries]
                 for k in to_remove:
                     self.files_data.pop(k, None)
                     self.imports_data.pop(k, None)
@@ -196,5 +224,6 @@ class ScriberCache:
                 json.dump(self.files_data, f, indent=2)
             with self.imports_cache_path.open("w", encoding="utf-8") as f:
                 json.dump(self.imports_data, f, indent=2)
-        except Exception:
-            pass  # Fail silently on write errors to not interrupt execution
+        except Exception as exc:
+            # Surface write errors instead of silently dropping them (audit #21).
+            logger.warning("Cache write failed: %s", exc)

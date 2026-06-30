@@ -1,8 +1,29 @@
 from __future__ import annotations
 from typing import Iterable, Any
 from pathlib import Path
+import logging
+import re
 from scriber.core.models import FileNode, ScriberConfig
 from scriber.graph.indexes import GraphIndexes
+
+logger = logging.getLogger("scriber.analyzers.docs")
+
+
+def _matches_whole_word(haystack: str, needle: str) -> bool:
+    """Whole-word match for doc → code references (audit finding #22).
+
+    Prevents false positives where a short filename is a substring of an
+    unrelated word in documentation prose (e.g. ``api.py`` inside ``rapid``).
+    """
+    if "/" in needle or "\\" in needle:
+        return needle in haystack
+    try:
+        return (
+            re.search(r"(?<![\w./-])" + re.escape(needle) + r"(?![\w])", haystack)
+            is not None
+        )
+    except re.error:
+        return needle in haystack
 
 
 class DocsAnalyzer:
@@ -27,10 +48,11 @@ class DocsAnalyzer:
                     content = node.absolute.read_text(encoding="utf-8", errors="ignore")
                     for crel, cnode in files.items():
                         if cnode.kind == "code":
-                            if crel.as_posix() in content or (
+                            posix = crel.as_posix()
+                            if _matches_whole_word(content, posix) or (
                                 len(crel.name) > 4
                                 and crel.name != "__init__.py"
-                                and crel.name in content
+                                and _matches_whole_word(content, crel.name)
                             ):
                                 edges.append(
                                     edge_cls(
@@ -44,6 +66,6 @@ class DocsAnalyzer:
                                         analyzer="docs:indexed",
                                     )
                                 )
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.warning("docs: failed to read %s: %s", rel, exc)
         return edges

@@ -11,6 +11,7 @@ from scriber.core.config import (
     validate_config,
     validate_raw_config,
 )
+from scriber.core.profiles import PROFILE_CHOICES
 from scriber.core.errors import ScriberError
 from scriber.core.init_config import init_project
 from scriber.core.root import resolve_config_path
@@ -46,6 +47,45 @@ def handle_introspection(args, pack) -> None:
         except Exception as e:
             print(f"Error exporting relation graph to JSON: {e}", file=sys.stderr)
 
+    # 1b. Interactive HTML graph export (audit finding #14)
+    if args.graph_html:
+        from scriber.rendering.graph_html import render_graph_html
+
+        html = render_graph_html(pack.graph)
+        html_path = Path(args.graph_html)
+        try:
+            with open(html_path, "w", encoding="utf-8") as f:
+                f.write(html)
+            print(f"Exported interactive graph HTML to {html_path}", file=sys.stderr)
+        except Exception as e:
+            print(f"Error exporting graph HTML: {e}", file=sys.stderr)
+
+    # 1c. DOT (Graphviz) export (audit finding #14)
+    if args.graph_dot:
+        from scriber.rendering.exports import render_dot
+
+        dot = render_dot(pack.graph)
+        dot_path = Path(args.graph_dot)
+        try:
+            with open(dot_path, "w", encoding="utf-8") as f:
+                f.write(dot)
+            print(f"Exported Graphviz DOT to {dot_path}", file=sys.stderr)
+        except Exception as e:
+            print(f"Error exporting DOT: {e}", file=sys.stderr)
+
+    # 1d. Mermaid export (audit finding #14)
+    if args.graph_mermaid:
+        from scriber.rendering.exports import render_mermaid
+
+        mermaid = render_mermaid(pack.graph)
+        mermaid_path = Path(args.graph_mermaid)
+        try:
+            with open(mermaid_path, "w", encoding="utf-8") as f:
+                f.write(mermaid)
+            print(f"Exported Mermaid diagram to {mermaid_path}", file=sys.stderr)
+        except Exception as e:
+            print(f"Error exporting Mermaid: {e}", file=sys.stderr)
+
     # 2. Explain Graph
     if args.explain_graph:
         edges = pack.graph.edges
@@ -75,6 +115,57 @@ def handle_introspection(args, pack) -> None:
             print(f" - {kind.ljust(20)}: {count}", file=sys.stderr)
         print(f"Unique Nodes: {unique_nodes}", file=sys.stderr)
         print(f"Average Degree: {avg_degree:.2f}", file=sys.stderr)
+
+        # Graph algorithms (audit findings #12, #13, #16).
+        try:
+            from scriber.engine.graph_algorithms import (
+                detect_cycles,
+                degree_centrality,
+                pagerank,
+                topological_layers,
+            )
+
+            cycles = detect_cycles(pack.graph)
+            print("\n--- Import Cycles (SCC) ---", file=sys.stderr)
+            if cycles:
+                print(f"Detected {len(cycles)} cyclic component(s):", file=sys.stderr)
+                for i, cyc in enumerate(cycles[:10], 1):
+                    members = ", ".join(sorted(str(p) for p in cyc))
+                    print(f" [{i}] {members}", file=sys.stderr)
+            else:
+                print("No import cycles detected (graph is a DAG).", file=sys.stderr)
+
+            centrality = degree_centrality(pack.graph, weighted=True)
+            if centrality:
+                top_hubs = sorted(centrality.items(), key=lambda x: x[1], reverse=True)[
+                    :5
+                ]
+                print(
+                    "\n--- Top 5 Hubs (weighted degree centrality) ---", file=sys.stderr
+                )
+                for path, score in top_hubs:
+                    print(f" - {str(path).ljust(45)}: {score:.2f}", file=sys.stderr)
+
+            # PageRank — an alternative influence ranking (audit finding #4).
+            pr = pagerank(pack.graph)
+            if pr:
+                top_pr = sorted(pr.items(), key=lambda x: x[1], reverse=True)[:5]
+                print("\n--- Top 5 Influential (PageRank) ---", file=sys.stderr)
+                for path, score in top_pr:
+                    print(f" - {str(path).ljust(45)}: {score:.4f}", file=sys.stderr)
+
+            layers = topological_layers(pack.graph)
+            print(
+                f"\n--- Architectural Layers ({len(layers)} layers) ---",
+                file=sys.stderr,
+            )
+            for i, layer in enumerate(layers):
+                preview = ", ".join(sorted(str(p) for p in layer)[:8])
+                more = f" (+{len(layer) - 8} more)" if len(layer) > 8 else ""
+                print(f" L{i}: {preview}{more}", file=sys.stderr)
+        except Exception as exc:
+            print(f"\n(Graph algorithm analysis skipped: {exc})", file=sys.stderr)
+
         print("========================================\n", file=sys.stderr)
 
     # 3. Why <file>
@@ -157,7 +248,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--profile",
-        choices=["default", "audit", "debug", "refactor", "docs"],
+        choices=list(PROFILE_CHOICES),
         default="default",
         help="Preset configuration profile.",
     )
@@ -254,6 +345,23 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--graph-json",
         help="Export the RelationGraph as a JSON file to the specified path.",
+    )
+    parser.add_argument(
+        "--graph-html",
+        help="Export the RelationGraph as an interactive HTML visualization to the specified path.",
+    )
+    parser.add_argument(
+        "--graph-dot",
+        help="Export the RelationGraph as a Graphviz DOT file to the specified path.",
+    )
+    parser.add_argument(
+        "--graph-mermaid",
+        help="Export the RelationGraph as a Mermaid diagram file to the specified path.",
+    )
+    parser.add_argument(
+        "--no-graph-html",
+        action="store_true",
+        help="Do not auto-emit an interactive graph.html alongside the pack output.",
     )
     parser.add_argument(
         "--validate-config",
@@ -448,7 +556,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                 output_path = pack.project_root / output_path
             print(f" Proposed output path:   {output_path}", file=sys.stderr)
             print("----------------------------------------", file=sys.stderr)
-            if args.explain_graph or args.why or args.graph_json:
+            if (
+                args.explain_graph
+                or args.why
+                or args.graph_json
+                or args.graph_html
+                or args.graph_dot
+                or args.graph_mermaid
+            ):
                 handle_introspection(args, pack)
             return 0
 
@@ -465,6 +580,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             max_tokens=args.max_tokens,
             min_score=args.min_score,
             support_content=args.support_content,
+            emit_graph_html=False if args.no_graph_html else None,
             progress_callback=_progress,
             project=args.project,
             explain_selection=args.explain_selection,
@@ -538,7 +654,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
                 sys.stderr.write("----------------------------------------\n")
 
-        if args.explain_graph or args.why or args.graph_json:
+        if (
+            args.explain_graph
+            or args.why
+            or args.graph_json
+            or args.graph_html
+            or args.graph_dot
+            or args.graph_mermaid
+        ):
             handle_introspection(args, pack)
 
         if output is not None:

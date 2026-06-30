@@ -170,6 +170,7 @@ max_tokens = 0
 min_score = 45
 path_style = "project-relative"
 allow_external_paths = false
+emit_graph_html = true
 
 [tool.scriber.code_files]
 patterns = ["**/*.py", "**/*.pyi", "**/*.rs", "**/*.js", "**/*.jsx", "**/*.ts", "**/*.tsx"]
@@ -250,6 +251,7 @@ def load_config(config_path: Path) -> ScriberConfig:
     config.allow_external_paths = bool(
         data.get("allow_external_paths", config.allow_external_paths)
     )
+    config.emit_graph_html = bool(data.get("emit_graph_html", config.emit_graph_html))
 
     code_files = data.get("code_files", {})
     if isinstance(code_files, dict) and isinstance(code_files.get("patterns"), list):
@@ -398,6 +400,7 @@ def apply_overrides(
     max_tokens: int | None = None,
     min_score: int | None = None,
     support_content: str | None = None,
+    emit_graph_html: bool | None = None,
 ) -> ScriberConfig:
     if output is not None:
         config.output = Path(output)
@@ -420,6 +423,8 @@ def apply_overrides(
         if support_content not in {"full", "auto", "tree_only"}:
             raise ValueError("support_content must be one of: full, auto, tree_only")
         config.support_content.default = support_content  # type: ignore[assignment]
+    if emit_graph_html is not None:
+        config.emit_graph_html = emit_graph_html
     return config
 
 

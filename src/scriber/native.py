@@ -31,6 +31,20 @@ def is_native_available() -> bool:
         return False
 
 
+def has_bpe_tokenizer() -> bool:
+    """True if the native module exposes the BPE tokenizer (audit feature 3).
+
+    The BPE function is only compiled in when the crate is built with the
+    ``bpe`` Cargo feature. This probe lets the Python side fall back to the
+    calibrated estimator when the feature is absent.
+    """
+    try:
+        native = _load_native()
+        return hasattr(native, "count_tokens_bpe")
+    except ImportError:
+        return False
+
+
 def require_native() -> Any:
     """Returns the native Rust module _native or raises ImportError with instructions."""
     try:

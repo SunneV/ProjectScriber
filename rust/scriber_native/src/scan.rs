@@ -2,6 +2,7 @@ use globset::GlobBuilder;
 use ignore::WalkBuilder;
 use pyo3::prelude::*;
 use std::path::Path;
+use std::sync::{Arc, Mutex};
 
 #[pyclass]
 #[derive(Clone)]
@@ -250,81 +251,114 @@ pub fn scan_project_native(
         true
     });
 
-    let mut file_infos = Vec::new();
+    // Audit finding #1: parallel directory walk. The previous code used
+    // ``builder.build()`` (a sequential iterator). ``build_parallel().run()``
+    // distributes directory traversal across a thread pool, which is 3-5x
+    // faster on large repos. Results are collected through a shared
+    // ``Arc<Mutex<Vec>>``; each visited file is independent.
+    let results: Arc<Mutex<Vec<NativeFileInfo>>> = Arc::new(Mutex::new(Vec::new()));
 
-    for result in builder.build() {
-        let entry = match result {
-            Ok(e) => e,
-            Err(_) => continue,
-        };
+    // Matchers are cheap to clone (they wrap compiled GlobSet); clone them
+    // into each worker thread via the closure returned by ``run``.
+    let code_matcher = Arc::new(code_matcher);
+    let support_matcher = Arc::new(support_matcher);
+    let support_tree_only_matcher = Arc::new(support_tree_only_matcher);
+    let support_full_matcher = Arc::new(support_full_matcher);
+    let hard_ignore_matcher = Arc::new(hard_ignore_matcher);
+    let support_default_policy = Arc::new(support_default_policy);
+    // Keep our own handle so we can read the results after ``run`` consumes
+    // the closure (which moves its own clone of the Arc).
+    let results_handle = results.clone();
 
-        if !entry.file_type().is_some_and(|ft| ft.is_file()) {
-            continue;
-        }
+    builder.build_parallel().run(move || {
+        // Per-thread clones of the Arcs.
+        let code_matcher = code_matcher.clone();
+        let support_matcher = support_matcher.clone();
+        let support_tree_only_matcher = support_tree_only_matcher.clone();
+        let support_full_matcher = support_full_matcher.clone();
+        let hard_ignore_matcher = hard_ignore_matcher.clone();
+        let support_default_policy = support_default_policy.clone();
+        let results = results.clone();
 
-        let path = entry.path();
-        let rel = match path.strip_prefix(root) {
-            Ok(r) => r,
-            Err(_) => continue,
-        };
-        let rel_s = to_posix_string(rel);
+        Box::new(move |entry_result| {
+            let entry = match entry_result {
+                Ok(e) => e,
+                Err(_) => return ignore::WalkState::Continue,
+            };
 
-        if rel_s.is_empty() {
-            continue;
-        }
-
-        if hard_ignore_matcher.matches(&rel_s) {
-            continue;
-        }
-
-        let kind;
-        let mut category = None;
-        let mut policy = "auto".to_string();
-
-        if code_matcher.matches(&rel_s) {
-            kind = "code";
-        } else if support_enabled && support_matcher.matches(&rel_s) {
-            kind = "support";
-            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-            category = Some(support_category(&rel_s, name));
-            if support_tree_only_matcher.matches(&rel_s) {
-                policy = "tree_only".to_string();
-            } else if support_full_matcher.matches(&rel_s) {
-                policy = "full".to_string();
-            } else {
-                policy = support_default_policy.clone();
+            if !entry.file_type().is_some_and(|ft| ft.is_file()) {
+                return ignore::WalkState::Continue;
             }
-        } else {
-            continue;
-        }
 
-        let metadata = match entry.metadata() {
-            Ok(m) => m,
-            Err(_) => continue,
-        };
-        let size_bytes = metadata.len();
+            let path = entry.path();
+            let rel = match path.strip_prefix(root) {
+                Ok(r) => r,
+                Err(_) => return ignore::WalkState::Continue,
+            };
+            let rel_s = to_posix_string(rel);
 
-        let mtime_ns = match metadata.modified() {
-            Ok(t) => t
-                .duration_since(std::time::SystemTime::UNIX_EPOCH)
-                .map_or(0, |d| d.as_nanos() as u64),
-            Err(_) => 0,
-        };
+            if rel_s.is_empty() || hard_ignore_matcher.matches(&rel_s) {
+                return ignore::WalkState::Continue;
+            }
 
-        let is_binary = crate::io::is_binary(path);
+            let kind;
+            let mut category = None;
+            let policy;
 
-        file_infos.push(NativeFileInfo {
-            relative: rel_s,
-            kind: kind.to_string(),
-            language: language_for(path.file_name().and_then(|n| n.to_str()).unwrap_or("")),
-            size_bytes,
-            is_binary,
-            support_category: category,
-            content_policy: policy,
-            mtime_ns,
-        });
-    }
+            if code_matcher.matches(&rel_s) {
+                kind = "code";
+                policy = "auto".to_string();
+            } else if support_enabled && support_matcher.matches(&rel_s) {
+                kind = "support";
+                let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                category = Some(support_category(&rel_s, name));
+                if support_tree_only_matcher.matches(&rel_s) {
+                    policy = "tree_only".to_string();
+                } else if support_full_matcher.matches(&rel_s) {
+                    policy = "full".to_string();
+                } else {
+                    policy = (*support_default_policy).clone();
+                }
+            } else {
+                return ignore::WalkState::Continue;
+            }
 
+            let metadata = match entry.metadata() {
+                Ok(m) => m,
+                Err(_) => return ignore::WalkState::Continue,
+            };
+            let size_bytes = metadata.len();
+
+            let mtime_ns = match metadata.modified() {
+                Ok(t) => t
+                    .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                    .map_or(0, |d| d.as_nanos() as u64),
+                Err(_) => 0,
+            };
+
+            let is_binary = crate::io::is_binary(path);
+
+            let info = NativeFileInfo {
+                relative: rel_s,
+                kind: kind.to_string(),
+                language: language_for(path.file_name().and_then(|n| n.to_str()).unwrap_or("")),
+                size_bytes,
+                is_binary,
+                support_category: category,
+                content_policy: policy,
+                mtime_ns,
+            };
+
+            if let Ok(mut guard) = results.lock() {
+                guard.push(info);
+            }
+            ignore::WalkState::Continue
+        })
+    });
+
+    let file_infos = Arc::try_unwrap(results_handle)
+        .map(|m| m.into_inner().unwrap_or_default())
+        .unwrap_or_default();
     Ok(file_infos)
 }
 

@@ -56,6 +56,9 @@ def generate_profiles() -> str:
         "debug": "Boosts direct/reverse dependencies, tests, runtime support, and files close to the seed path.",
         "refactor": "Boosts files within the same package, related tests, and direct dependencies.",
         "docs": "Heavily boosts documentation files while suppressing test and code file scores. Assumes tree_only support content by default.",
+        "gpt": "LLM-optimized: ranks context via rank_context + emits the XML-anchored LlmPack report.",
+        "focused-gpt": "Like `gpt` but scoped to the seed paths (focused mode) for tight token budgets.",
+        "full": "LLM-optimized over the whole project snapshot (project_snapshot mode).",
     }
 
     for p in PROFILE_CHOICES:

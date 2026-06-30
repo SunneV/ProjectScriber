@@ -183,27 +183,6 @@ def _walk_weighted_neighbors(
     return max_strength
 
 
-def _walk_neighbors(
-    edges: dict[Path, set[Path]], start: Path, depth: int
-) -> dict[Path, int]:
-    found: dict[Path, int] = {}
-    frontier = {start}
-    visited = {start}
-    for distance in range(1, max(1, depth) + 1):
-        next_frontier: set[Path] = set()
-        for item in frontier:
-            for neighbor in edges.get(item, set()):
-                if neighbor in visited:
-                    continue
-                visited.add(neighbor)
-                found.setdefault(neighbor, distance)
-                next_frontier.add(neighbor)
-        frontier = next_frontier
-        if not frontier:
-            break
-    return found
-
-
 def _support_base_score(file: FileNode, config: ScriberConfig) -> int:
     category = file.support_category or "support file"
     if category == "project config":

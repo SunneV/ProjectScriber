@@ -687,21 +687,65 @@ pub fn build_relation_graph(
     python_source_roots: Vec<String>,
     python_module_init_files: Vec<String>,
 ) -> PyResult<Vec<NativeRelationEdge>> {
+    // Keep a clone for the optional AST pass (build_import_graph consumes files).
+    // Only used when the `treesitter` feature is enabled.
+    #[allow(unused_variables)]
+    let files_for_ast = files.clone();
     let import_edges =
         build_import_graph(root, files, python_source_roots, python_module_init_files)?;
 
     let mut relation_edges = Vec::with_capacity(import_edges.len());
     for edge in import_edges {
+        // Preserve the real per-language edge kind (import / mod / use / include)
+        // instead of collapsing everything to "import". This restores intra-language
+        // granularity that build_import_graph already computes (audit finding #7).
         relation_edges.push(NativeRelationEdge {
             source: edge.from,
             target: edge.to,
-            kind: "import".to_string(), // we map everything to "import" for now to match python
+            kind: edge.kind,
             weight: 1.0,
             confidence: 0.98,
             evidence: None,
             line: None,
             analyzer: "imports:native".to_string(),
         });
+    }
+
+    // AST-based symbol relations (audit feature 1): emit type_reference and
+    // inherits edges for Python files via tree-sitter. This recovers the
+    // symbol-level relations that were previously dead on the native path.
+    // Only compiled in when the `treesitter` feature is enabled.
+    #[cfg(feature = "treesitter")]
+    {
+        use crate::ast::{collect_python_class_defs, extract_python_ast_edges};
+        use std::collections::HashMap;
+        use std::sync::OnceLock;
+
+        // Read each Python file once, build the global name→rel map.
+        let mut name_to_rel: HashMap<String, String> = HashMap::new();
+        let mut py_sources: HashMap<String, String> = HashMap::new();
+        for f in &files_for_ast {
+            if f.language == "python" && !f.is_binary {
+                let abs_path = Path::new(root).join(&f.relative);
+                if let Ok(src) = crate::io::read_text_lossy_native(abs_path.to_str().unwrap_or(""))
+                {
+                    let defs = collect_python_class_defs(&src);
+                    for (name, _line) in defs {
+                        // First definer wins (consistent with the Python builder).
+                        name_to_rel
+                            .entry(name)
+                            .or_insert_with(|| f.relative.clone());
+                    }
+                    py_sources.insert(f.relative.clone(), src);
+                }
+            }
+        }
+        // Emit symbol edges per Python file.
+        for (rel, src) in &py_sources {
+            let sym_edges = extract_python_ast_edges(src, rel, &name_to_rel);
+            relation_edges.extend(sym_edges);
+        }
+        let _ = OnceLock::<()>::new();
     }
 
     Ok(relation_edges)

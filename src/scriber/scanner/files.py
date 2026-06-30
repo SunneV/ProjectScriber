@@ -36,18 +36,139 @@ LANGUAGE_BY_SUFFIX = {
     ".lock": "lock",
 }
 
+# Extensions that are always treated as text — no need to open the file for a
+# binary sniff (audit finding #8). This avoids an extra open()+read syscall on
+# the common path, and pairs with the per-path binary-detection cache below.
+TEXT_EXTENSIONS = {
+    ".py",
+    ".pyi",
+    ".rs",
+    ".go",
+    ".java",
+    ".kt",
+    ".c",
+    ".cpp",
+    ".cc",
+    ".cxx",
+    ".h",
+    ".hpp",
+    ".hh",
+    ".hxx",
+    ".js",
+    ".jsx",
+    ".ts",
+    ".tsx",
+    ".vue",
+    ".svelte",
+    ".astro",
+    ".css",
+    ".scss",
+    ".sass",
+    ".less",
+    ".html",
+    ".htm",
+    ".md",
+    ".rst",
+    ".txt",
+    ".toml",
+    ".yaml",
+    ".yml",
+    ".json",
+    ".ini",
+    ".cfg",
+    ".lock",
+    ".sh",
+    ".bash",
+    ".zsh",
+    ".fish",
+    ".ps1",
+    ".bat",
+    ".cmd",
+}
+
+# Known-binary extensions (also skip the sniff).
+BINARY_EXTENSIONS = {
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".bmp",
+    ".ico",
+    ".webp",
+    ".tiff",
+    ".tif",
+    ".pdf",
+    ".zip",
+    ".gz",
+    ".tar",
+    ".tgz",
+    ".bz2",
+    ".xz",
+    ".7z",
+    ".rar",
+    ".exe",
+    ".dll",
+    ".so",
+    ".dylib",
+    ".o",
+    ".a",
+    ".lib",
+    ".obj",
+    ".pyc",
+    ".pyo",
+    ".pyd",
+    ".class",
+    ".wasm",
+    ".mp3",
+    ".mp4",
+    ".avi",
+    ".mov",
+    ".mkv",
+    ".flv",
+    ".wav",
+    ".ogg",
+    ".flac",
+    ".eot",
+    ".ttf",
+    ".otf",
+    ".woff",
+    ".woff2",
+    ".pdb",
+    ".msi",
+}
+
+# Per-process cache of binary-detection results keyed by absolute path
+# (audit #8). Avoids re-opening the same file for binary sniffing and again
+# for content reading during a single run.
+_binary_cache: dict[str, bool] = {}
+
 
 def is_probably_binary(path: Path) -> bool:
+    cache_key = str(path.resolve())
+    if cache_key in _binary_cache:
+        return _binary_cache[cache_key]
+
+    # Fast path by extension (audit #8): known-text/known-binary skips the read.
+    suffix = path.suffix.lower()
+    if suffix in TEXT_EXTENSIONS:
+        _binary_cache[cache_key] = False
+        return False
+    if suffix in BINARY_EXTENSIONS:
+        _binary_cache[cache_key] = True
+        return True
+
     from scriber.native import require_native
 
     try:
-        return require_native().is_probably_binary(str(path))
+        result = bool(require_native().is_probably_binary(str(path)))
     except Exception:
         try:
             chunk = path.read_bytes()[:4096]
-            return b"\0" in chunk
+            result = b"\0" in chunk
         except OSError:
-            return True
+            result = True
+    _binary_cache[cache_key] = result
+    return result
 
 
 def language_for(path: Path) -> str:

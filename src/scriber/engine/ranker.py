@@ -32,6 +32,21 @@ def rank_context(
 
     explicit_seeds = {s for s in seeds}
 
+    # Real centrality (audit finding #13): replaces the previous hardcoded
+    # ``centrality_bonus = 0`` placeholder. Computed once and reused per node.
+    from scriber.engine.graph_algorithms import degree_centrality
+
+    centrality = degree_centrality(graph, weighted=True)
+    if centrality:
+        max_c = max(centrality.values())
+    else:
+        max_c = 0.0
+    # Normalize to 0..30 bonus so it nudges, not dominates, the score.
+    centrality_bonus_map = {
+        node: (val / max_c * 30.0) if max_c > 0 else 0.0
+        for node, val in centrality.items()
+    }
+
     distances = {}
     if mode == "focused":
         adj_out = defaultdict(list)
@@ -83,7 +98,7 @@ def rank_context(
             weight = RELATION_WEIGHT.get(edge.kind, 10) * edge.weight * edge.confidence
             relation_score += weight
 
-        centrality_bonus = 0
+        centrality_bonus = centrality_bonus_map.get(rel, 0.0)
         evidence_bonus = len(incoming) * 2
         noise_penalty = 0
 
@@ -128,7 +143,11 @@ def rank_context(
             - noise_penalty
         ) * decay
 
-        token_estimate = node.size_bytes // 4
+        # Token estimate via the shared helper (audit #6) — keeps the ranker
+        # consistent with the packer instead of reimplementing the divisor.
+        from scriber.tokens import estimate_tokens_from_bytes
+
+        token_estimate = estimate_tokens_from_bytes(node.size_bytes, node.language)
         utility = raw_score / math.sqrt(token_estimate + 200)
 
         c = Candidate(
